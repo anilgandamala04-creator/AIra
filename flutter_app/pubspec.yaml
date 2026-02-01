@@ -1,0 +1,100 @@
+name: ai_tutor
+description: AI Tutor - Intelligent Learning Companion (Flutter Mobile & Desktop)
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  
+  # State Management
+  provider: ^6.1.1
+  riverpod: ^2.4.9
+  flutter_riverpod: ^2.4.9
+  
+  # Navigation
+  go_router: ^13.0.0
+  
+  # Firebase
+  firebase_core: ^2.24.2
+  firebase_auth: ^4.15.3
+  firebase_analytics: ^10.7.4
+  cloud_firestore: ^4.13.6
+  firebase_storage: ^11.5.6
+  
+  # OAuth
+  google_sign_in: ^6.1.6
+  sign_in_with_apple: ^5.0.0
+  
+  # UI & Design
+  cupertino_icons: ^1.0.6
+  flutter_svg: ^2.0.9
+  cached_network_image: ^3.3.1
+  shimmer: ^3.0.0
+  flutter_animate: ^4.3.0
+  
+  # Local Storage
+  shared_preferences: ^2.2.2
+  hive: ^2.2.3
+  hive_flutter: ^1.1.0
+  
+  # HTTP & API
+  http: ^1.1.2
+  dio: ^5.4.0
+  
+  # Internationalization
+  intl: ^0.20.2
+  easy_localization: ^3.0.4
+  
+  # Utils
+  uuid: ^4.2.1
+  path_provider: ^2.1.1
+  url_launcher: ^6.2.2
+  package_info_plus: ^5.0.1
+  
+  # Text to Speech
+  flutter_tts: ^4.0.2
+  
+  # Toast Notifications
+  fluttertoast: ^8.2.4
+  awesome_snackbar_content: ^0.1.8
+  
+  # Icons
+  font_awesome_flutter: ^10.6.0
+  
+  # Charts & Analytics
+  fl_chart: ^0.65.0
+  
+  # Markdown rendering
+  flutter_markdown: ^0.6.18
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^3.0.1
+  build_runner: ^2.4.7
+  hive_generator: ^2.0.1
+  json_serializable: ^6.7.1
+  json_annotation: ^4.8.1
+
+flutter:
+  uses-material-design: true
+  
+  assets:
+    - assets/images/
+    - assets/icons/
+    - assets/animations/
+  
+  fonts:
+    - family: Inter
+      fonts:
+        - asset: assets/fonts/Inter-Regular.ttf
+        - asset: assets/fonts/Inter-Medium.ttf
+          weight: 500
+        - asset: assets/fonts/Inter-SemiBold.ttf
+          weight: 600
+        - asset: assets/fonts/Inter-Bold.ttf
+          weight: 700

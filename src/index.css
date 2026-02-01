@@ -1,0 +1,372 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Base styles */
+:root {
+  --color-primary: #a855f7;
+  --color-accent: #ec4899;
+  --color-sky: #7dd3fc;
+  --gradient-start: #667eea;
+  --gradient-mid: #a855f7;
+  --gradient-end: #f9a8d4;
+
+  /* Three-panel layout: page padding 24-32px, gap 20-24px; panels share (100% - 2*gap) */
+  --layout-page-px: 28px;
+  --layout-gap: 22px;
+  --layout-panels-available: calc(100% - 2 * var(--layout-gap));
+  --panel-chat-width: calc(var(--layout-panels-available) * 0.21);
+  --panel-teaching-width: calc(var(--layout-panels-available) * 0.58);
+  --panel-studio-width: calc(var(--layout-panels-available) * 0.21);
+  --panel-padding: 18px;
+  --panel-header-gap: 18px;
+  --stack-gap: 15px;
+  --rhythm: 8px;
+  --chat-block-height: 80px;
+  --chat-search-height: 42px;
+  --studio-block-min-height: 72px;
+  
+  /* Font size variables */
+  --font-size-base: 16px;
+  --font-size-small: 14px;
+  --font-size-medium: 16px;
+  --font-size-large: 18px;
+  --font-size-xlarge: 20px;
+  
+  /* High contrast mode */
+  --high-contrast: 0;
+}
+
+/* Font size settings */
+html[data-font-size="small"] {
+  --font-size-base: 14px;
+  font-size: 14px;
+}
+
+html[data-font-size="medium"] {
+  --font-size-base: 16px;
+  font-size: 16px;
+}
+
+html[data-font-size="large"] {
+  --font-size-base: 18px;
+  font-size: 18px;
+}
+
+html[data-font-size="xlarge"] {
+  --font-size-base: 20px;
+  font-size: 20px;
+}
+
+/* High contrast mode */
+html[data-high-contrast="true"] {
+  --high-contrast: 1;
+  --color-primary: #000000;
+  --color-accent: #000000;
+  filter: contrast(1.2) brightness(1.1);
+}
+
+html[data-high-contrast="true"] * {
+  border-color: currentColor !important;
+}
+
+/* Reduce animations */
+html[data-reduce-animations="true"] *,
+html[data-reduce-animations="true"] *::before,
+html[data-reduce-animations="true"] *::after {
+  animation-duration: 0.01ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.01ms !important;
+  scroll-behavior: auto !important;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  background: linear-gradient(180deg, #c7d2fe 0%, #e9d5ff 30%, #fbcfe8 60%, #bae6fd 100%);
+  min-height: 100vh;
+}
+
+/* Ensure global background matches theme even outside page shells (e.g. loaders) */
+html.dark body {
+  background: linear-gradient(135deg, #020617 0%, #0f172a 45%, #1e293b 100%);
+}
+
+/* High contrast: avoid filters in dark mode from washing out gradients too much */
+html[data-high-contrast="true"] body {
+  background: #ffffff;
+}
+
+html.dark[data-high-contrast="true"] body {
+  background: #000000;
+}
+
+#root {
+  min-height: 100vh;
+}
+
+/* Glass morphism utility */
+@layer utilities {
+  .glass {
+    background: rgba(255, 255, 255, 0.25);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid rgba(255, 255, 255, 0.18);
+  }
+
+  .glass-dark {
+    background: rgba(0, 0, 0, 0.1);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+  }
+
+  .glass-card {
+    background: rgba(255, 255, 255, 0.85);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border: 1px solid rgba(255, 255, 255, 0.5);
+    box-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.1);
+  }
+
+  .text-gradient {
+    background: linear-gradient(135deg, #667eea 0%, #a855f7 50%, #ec4899 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  .bg-gradient-animated {
+    background: linear-gradient(135deg, #667eea 0%, #a855f7 25%, #ec4899 50%, #f9a8d4 75%, #7dd3fc 100%);
+    background-size: 400% 400%;
+    animation: gradient-shift 15s ease infinite;
+  }
+
+  @keyframes gradient-shift {
+    0% { background-position: 0% 50%; }
+    50% { background-position: 100% 50%; }
+    100% { background-position: 0% 50%; }
+  }
+
+  .btn-primary {
+    @apply bg-gradient-to-r from-primary-500 to-accent-500 text-white font-semibold py-3 px-6 rounded-xl shadow-lg hover:shadow-glow transition-all duration-300 hover:scale-105;
+  }
+
+  .btn-secondary {
+    @apply glass-card text-gray-700 font-semibold py-3 px-6 rounded-xl hover:shadow-lg transition-all duration-300;
+  }
+
+  .btn-dark {
+    @apply bg-gray-900 text-white font-semibold py-3 px-6 rounded-xl shadow-lg hover:bg-gray-800 transition-all duration-300;
+  }
+
+  .input-field {
+    @apply w-full px-4 py-3 rounded-xl glass-card border border-white/50 focus:outline-none focus:ring-2 focus:ring-primary-400 focus:border-transparent transition-all duration-300;
+  }
+
+  .card {
+    @apply glass-card rounded-2xl p-6 transition-all duration-300 hover:shadow-glass-lg;
+  }
+
+  .card-interactive {
+    @apply card hover:scale-[1.02] cursor-pointer;
+  }
+}
+
+/* Accessibility: Focus styles */
+*:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+/* Skip to main content link for screen readers */
+.skip-to-main {
+  position: absolute;
+  top: -40px;
+  left: 0;
+  background: var(--color-primary);
+  color: white;
+  padding: 8px 16px;
+  text-decoration: none;
+  z-index: 100;
+}
+
+.skip-to-main:focus {
+  top: 0;
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(168, 85, 247, 0.3);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(168, 85, 247, 0.5);
+}
+
+/* Responsive Design Utilities */
+@layer utilities {
+  /* Mobile-first responsive containers */
+  .container-responsive {
+    @apply w-full px-4 sm:px-6 md:px-8 lg:px-12;
+  }
+
+  /* Touch-friendly buttons on mobile */
+  @media (max-width: 768px) {
+    button, a, [role="button"] {
+      min-height: 44px;
+      min-width: 44px;
+    }
+  }
+
+  /* Responsive text sizes */
+  .text-responsive-xs {
+    @apply text-xs sm:text-sm;
+  }
+
+  .text-responsive-sm {
+    @apply text-sm sm:text-base;
+  }
+
+  .text-responsive-base {
+    @apply text-base sm:text-lg;
+  }
+
+  .text-responsive-lg {
+    @apply text-lg sm:text-xl md:text-2xl;
+  }
+
+  .text-responsive-xl {
+    @apply text-xl sm:text-2xl md:text-3xl lg:text-4xl;
+  }
+
+  /* Responsive spacing */
+  .gap-responsive {
+    @apply gap-2 sm:gap-3 md:gap-4 lg:gap-6;
+  }
+
+  .p-responsive {
+    @apply p-3 sm:p-4 md:p-6 lg:p-8;
+  }
+
+  .px-responsive {
+    @apply px-4 sm:px-6 md:px-8 lg:px-12;
+  }
+
+  .py-responsive {
+    @apply py-4 sm:py-6 md:py-8 lg:py-12;
+  }
+
+  /* Responsive grid */
+  .grid-responsive {
+    @apply grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4;
+  }
+
+  /* Safe area for mobile notches */
+  .safe-top {
+    padding-top: env(safe-area-inset-top);
+  }
+
+  .safe-bottom {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+
+  .safe-left {
+    padding-left: env(safe-area-inset-left);
+  }
+
+  .safe-right {
+    padding-right: env(safe-area-inset-right);
+  }
+}
+
+/* Mobile-specific optimizations */
+@media (max-width: 640px) {
+  /* Reduce padding on mobile */
+  .container-responsive {
+    @apply px-3;
+  }
+
+  /* Larger touch targets */
+  button, a, [role="button"] {
+    @apply min-h-[44px] min-w-[44px];
+  }
+
+  /* Better text readability */
+  body {
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+  }
+}
+
+/* Tablet optimizations */
+@media (min-width: 641px) and (max-width: 1024px) {
+  .container-responsive {
+    @apply px-6;
+  }
+}
+
+/* Prevent horizontal scroll on mobile */
+html, body {
+  overflow-x: hidden;
+  width: 100%;
+}
+
+/* Smooth scrolling on mobile */
+@media (prefers-reduced-motion: no-preference) {
+  html {
+    scroll-behavior: smooth;
+  }
+}
+
+/* Cloud animation base */
+.cloud {
+  position: absolute;
+  background: linear-gradient(180deg, rgba(255,255,255,0.9) 0%, rgba(255,255,255,0.6) 100%);
+  border-radius: 100px;
+  filter: blur(2px);
+  opacity: 0.8;
+}
+
+/* Page transitions */
+.page-enter {
+  opacity: 0;
+  transform: translateY(20px);
+}
+
+.page-enter-active {
+  opacity: 1;
+  transform: translateY(0);
+  transition: opacity 300ms, transform 300ms;
+}
+
+.page-exit {
+  opacity: 1;
+}
+
+.page-exit-active {
+  opacity: 0;
+  transition: opacity 300ms;
+}
