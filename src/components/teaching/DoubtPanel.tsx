@@ -1,11 +1,14 @@
 import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { useShallow } from 'zustand/react/shallow';
 import { useDoubtStore } from '../../stores/doubtStore';
 import { useTeachingStore } from '../../stores/teachingStore';
+import { useSettingsStore } from '../../stores/settingsStore';
+import { narrateText } from '../../services/narration';
 import type { Doubt } from '../../types';
 import {
     HelpCircle, Send, Loader2, CheckCircle,
-    Lightbulb, BookOpen, ChevronDown, ChevronUp
+    Lightbulb, BookOpen, ChevronDown, ChevronUp, Volume2
 } from 'lucide-react';
 
 interface DoubtPanelProps {
@@ -17,16 +20,21 @@ export default function DoubtPanel({ sessionId, onDoubtRaised }: DoubtPanelProps
     const [question, setQuestion] = useState('');
     const [expanded, setExpanded] = useState(true);
 
-    const { currentStep } = useTeachingStore();
+    const { currentStep, currentSession } = useTeachingStore(
+        useShallow((state) => ({
+            currentStep: state.currentStep,
+            currentSession: state.currentSession,
+        }))
+    );
     const {
         activeDoubt,
         isResolvingDoubt,
         raiseDoubt,
         getSessionDoubts,
     } = useDoubtStore();
+    const ttsEnabled = useSettingsStore((state) => state.settings.accessibility.textToSpeech);
 
     const sessionDoubts = getSessionDoubts(sessionId);
-    const currentSession = useTeachingStore.getState().currentSession;
 
     const handleSubmitDoubt = () => {
         if (!question.trim() || !currentSession || !currentSession.teachingSteps || currentSession.teachingSteps.length === 0) {
@@ -37,12 +45,16 @@ export default function DoubtPanel({ sessionId, onDoubtRaised }: DoubtPanelProps
         const safeStep = Math.max(0, Math.min(currentStep, currentSession.teachingSteps.length - 1));
         const stepData = currentSession.teachingSteps[safeStep] || null;
         
-        raiseDoubt(
-            question,
-            sessionId,
-            safeStep + 1,
-            stepData?.title || 'Unknown Step'
-        );
+        try {
+            raiseDoubt(
+                question,
+                sessionId,
+                safeStep + 1,
+                stepData?.title || 'Unknown Step'
+            );
+        } catch (error) {
+            console.error('Failed to raise doubt:', error);
+        }
         setQuestion('');
         onDoubtRaised?.();
     };
@@ -76,10 +88,10 @@ export default function DoubtPanel({ sessionId, onDoubtRaised }: DoubtPanelProps
                         initial={{ height: 0, opacity: 0 }}
                         animate={{ height: 'auto', opacity: 1 }}
                         exit={{ height: 0, opacity: 0 }}
-                        className="flex-1 flex flex-col overflow-hidden"
+                        className="flex-1 min-h-0 flex flex-col overflow-hidden"
                     >
                         {/* Previous doubts */}
-                        <div className="flex-1 overflow-y-auto p-3 space-y-3">
+                        <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden p-3 space-y-3">
                             {sessionDoubts.length === 0 ? (
                                 <div className="text-center py-6 text-gray-400 dark:text-slate-500">
                                     <HelpCircle className="w-10 h-10 mx-auto mb-2 opacity-50" />
@@ -88,7 +100,12 @@ export default function DoubtPanel({ sessionId, onDoubtRaised }: DoubtPanelProps
                                 </div>
                             ) : (
                                 sessionDoubts.map((doubt) => (
-                                    <DoubtCard key={doubt.id} doubt={doubt} isActive={activeDoubt?.id === doubt.id} />
+                                    <DoubtCard
+                                        key={doubt.id}
+                                        doubt={doubt}
+                                        isActive={activeDoubt?.id === doubt.id}
+                                        ttsEnabled={ttsEnabled}
+                                    />
                                 ))
                             )}
 
@@ -137,13 +154,13 @@ export default function DoubtPanel({ sessionId, onDoubtRaised }: DoubtPanelProps
 }
 
 // Individual doubt card component
-function DoubtCard({ doubt, isActive }: { doubt: Doubt; isActive: boolean }) {
+function DoubtCard({ doubt, isActive, ttsEnabled }: { doubt: Doubt; isActive: boolean; ttsEnabled: boolean }) {
     const [showDetails, setShowDetails] = useState(isActive);
 
     const statusColors = {
-        pending: 'bg-amber-100 text-amber-600',
-        resolving: 'bg-blue-100 text-blue-600',
-        resolved: 'bg-green-100 text-green-600',
+        pending: 'bg-amber-100 dark:bg-amber-900/30 text-amber-600 dark:text-amber-400',
+        resolving: 'bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400',
+        resolved: 'bg-green-100 dark:bg-green-900/30 text-green-600 dark:text-green-400',
     };
 
     return (
@@ -182,7 +199,19 @@ function DoubtCard({ doubt, isActive }: { doubt: Doubt; isActive: boolean }) {
                             <div className="flex gap-2">
                                 <Lightbulb className="w-4 h-4 text-amber-500 mt-0.5 shrink-0" />
                                 <div>
-                                    <p className="text-xs font-medium text-gray-500 dark:text-slate-400 mb-1">Explanation</p>
+                                    <div className="flex items-center gap-2">
+                                        <p className="text-xs font-medium text-gray-500 dark:text-slate-400 mb-1">Explanation</p>
+                                        <button
+                                            type="button"
+                                            onClick={() => narrateText(doubt.resolution?.explanation || '', { enabled: ttsEnabled })}
+                                            className="inline-flex items-center gap-1 text-xs text-purple-600 dark:text-purple-400 hover:text-purple-700 dark:hover:text-purple-300 transition-colors"
+                                            disabled={!ttsEnabled}
+                                            aria-label="Listen to explanation"
+                                        >
+                                            <Volume2 className="w-3 h-3" />
+                                            Listen
+                                        </button>
+                                    </div>
                                     <p className="text-sm text-gray-700 dark:text-slate-200 whitespace-pre-line">
                                         {doubt.resolution.explanation}
                                     </p>

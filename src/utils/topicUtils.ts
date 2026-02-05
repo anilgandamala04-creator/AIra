@@ -5,6 +5,7 @@ import type { Topic } from '../types';
  * Finds topic information from the professions data structure
  */
 export function findTopicInfo(topicId: string): { topic: Topic | null; subjectArea: string | null } {
+    // Search in professions data
     for (const profession of professions) {
         for (const subProfession of profession.subProfessions) {
             for (const subject of subProfession.subjects) {

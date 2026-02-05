@@ -4,17 +4,17 @@
 
 ### 1. Project Structure
 - ✅ Flutter project initialized with `pubspec.yaml`
-- ✅ Complete dependency setup (Firebase, Riverpod, GoRouter, etc.)
+- ✅ Complete dependency setup (Supabase, Riverpod, GoRouter, etc.)
 - ✅ Project structure organized
 
 ### 2. Core Infrastructure
-- ✅ **Main App** (`lib/main.dart`): App initialization, Firebase setup, localization
+- ✅ **Main App** (`lib/main.dart`): App initialization, Supabase setup, localization
 - ✅ **Router** (`lib/router/app_router.dart`): Navigation with GoRouter, protected routes
 - ✅ **State Management**: Riverpod providers for auth and app state
 - ✅ **Theme System**: Light/Dark theme support
 
 ### 3. Authentication System
-- ✅ **Auth Service** (`lib/services/auth_service.dart`): Complete Firebase Auth integration
+- ✅ **Auth Service** (`lib/services/auth_service.dart`): Complete Supabase Auth integration
   - Email/Password login & signup
   - Google Sign-In
   - Apple Sign-In
@@ -96,11 +96,10 @@
 - [ ] Progress indicators
 - [ ] Badge widgets
 
-### 6. Firebase Integration
-- [ ] Firestore setup for data persistence
-- [ ] Cloud Storage for user uploads
-- [ ] Analytics events
-- [ ] Remote config (optional)
+### 6. Supabase Integration
+- [ ] Supabase Database setup for data persistence
+- [ ] Supabase Storage for user uploads
+- [ ] Analytics events (Supabase/PostHog)
 
 ### 7. Internationalization
 - [ ] Create localization files (en, es, fr, de)

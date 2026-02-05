@@ -1,6 +1,6 @@
 /**
  * Centralized Animation Configuration
- * 
+ *
  * This file provides consistent animation presets, variants, and utilities
  * for use throughout the application with Framer Motion.
  */
@@ -382,3 +382,73 @@ export const cssAnimations = `
     50% { transform: translateY(-5px); }
 }
 `;
+
+// Reduced-motion variants (for accessibility)
+export const reducedPageVariants: Variants = {
+  initial: { opacity: 1, y: 0 },
+  animate: { opacity: 1, y: 0 },
+  exit: { opacity: 1, y: 0 }
+};
+
+// Legacy exports for compatibility
+export const DURATION_FAST = 0.2;
+export const DURATION_NORMAL = 0.28;
+export const DURATION_SLOW = 0.4;
+export const EASE_DEFAULT = [0.4, 0, 0.2, 1] as const;
+export const EASE_OUT = [0, 0, 0.2, 1] as const;
+export const EASE_IN_OUT = [0.4, 0, 0.6, 1] as const;
+export const TRANSITION_DEFAULT = {
+  duration: DURATION_NORMAL,
+  ease: EASE_DEFAULT
+};
+
+export const staggerContainer = {
+  animate: {
+    transition: { staggerChildren: 0.06, delayChildren: 0.04 }
+  }
+};
+
+export const staggerItem = {
+  initial: { opacity: 0, y: 12 },
+  animate: { opacity: 1, y: 0 }
+};
+
+export const staggerItemFast = {
+  initial: { opacity: 0, y: 8 },
+  animate: { opacity: 1, y: 0 }
+};
+
+export const tapScale = { scale: 0.98 };
+export const hoverLift = { y: -2 };
+
+export const springTransition = {
+  type: 'spring' as const,
+  stiffness: 400,
+  damping: 25
+};
+
+export const cardHoverTap = {
+  rest: { scale: 1, y: 0 },
+  hover: { scale: 1.02, y: -2 },
+  tap: { scale: 0.98, y: 0 }
+};
+
+export const feedbackVariants = {
+  success: {
+    initial: { opacity: 0, scale: 0.92 },
+    animate: { opacity: 1, scale: 1 },
+    transition: { duration: DURATION_FAST, ease: EASE_OUT }
+  },
+  error: {
+    initial: { opacity: 0, x: 0 },
+    animate: { opacity: 1, x: [0, -6, 6, -4, 4, 0] },
+    transition: {
+      opacity: { duration: DURATION_FAST },
+      x: { duration: 0.4, ease: EASE_IN_OUT }
+    }
+  },
+  loading: {
+    animate: { opacity: [0.5, 1, 0.5] },
+    transition: { duration: 1.2, repeat: Infinity, ease: 'easeInOut' }
+  }
+};

@@ -25,15 +25,15 @@ export default function NotesViewer({ note }: NotesViewerProps) {
         <motion.div
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
-            className="bg-white dark:bg-slate-900 rounded-xl shadow-lg overflow-hidden"
+            className="bg-white dark:bg-slate-900 rounded-xl shadow-lg overflow-hidden min-w-0 max-w-full"
         >
             {/* Header */}
-            <div className="bg-gradient-to-r from-purple-500 to-pink-500 text-white p-4">
-                <div className="flex items-start justify-between">
-                    <div>
-                        <div className="flex items-center gap-2 mb-1">
-                            <FileText className="w-5 h-5" />
-                            <h2 className="font-bold text-lg">{note.title}</h2>
+            <div className="bg-gradient-to-r from-purple-500 to-pink-500 text-white p-3 sm:p-4">
+                <div className="flex items-start justify-between gap-2 min-w-0">
+                    <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2 mb-1 min-w-0">
+                            <FileText className="w-5 h-5 shrink-0" />
+                            <h2 className="font-bold text-base sm:text-lg truncate" title={note.title}>{note.title}</h2>
                         </div>
                         <p className="text-purple-100 text-sm">
                             Generated from your learning session
@@ -67,8 +67,8 @@ export default function NotesViewer({ note }: NotesViewerProps) {
                 </button>
             </div>
 
-            {/* Content */}
-            <div className="p-4 max-h-[500px] overflow-y-auto">
+            {/* Content - responsive max-height so panel stays usable on small screens */}
+            <div className="p-3 sm:p-4 max-h-[60vh] sm:max-h-[500px] overflow-y-auto overflow-x-hidden min-h-0">
                 {note.sections.map((section, index) => (
                     <motion.div
                         key={index}
@@ -78,7 +78,7 @@ export default function NotesViewer({ note }: NotesViewerProps) {
                         className="mb-6 last:mb-0"
                     >
                         <h3 className="font-bold text-gray-800 dark:text-slate-100 mb-2 flex items-center gap-2">
-                            <span className="w-6 h-6 bg-purple-100 text-purple-600 rounded-full flex items-center justify-center text-sm font-bold">
+                            <span className="w-6 h-6 bg-purple-100 dark:bg-purple-900/40 text-purple-600 dark:text-purple-400 rounded-full flex items-center justify-center text-sm font-bold">
                                 {index + 1}
                             </span>
                             {section.heading}

@@ -1,82 +1,81 @@
-import 'package:firebase_auth/firebase_auth.dart' as firebase_auth;
+import 'package:supabase_flutter/supabase_flutter.dart' as supabase;
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:sign_in_with_apple/sign_in_with_apple.dart';
 import '../models/user_model.dart';
 
 class AuthService {
-  final firebase_auth.FirebaseAuth _auth = firebase_auth.FirebaseAuth.instance;
+  final supabase.SupabaseClient _client = supabase.Supabase.instance.client;
   final GoogleSignIn _googleSignIn = GoogleSignIn();
 
-  User? _userFromFirebase(firebase_auth.User? firebaseUser) {
-    if (firebaseUser == null) return null;
+  User? _userFromSupabase(supabase.User? supabaseUser) {
+    if (supabaseUser == null) return null;
+    
+    final metadata = supabaseUser.userMetadata ?? {};
+    final name = metadata['full_name'] ?? metadata['name'] ?? supabaseUser.email ?? 'User';
     
     return User(
-      id: firebaseUser.uid,
-      email: firebaseUser.email ?? '',
-      name: firebaseUser.displayName ?? firebaseUser.email ?? 'User',
-      displayName: firebaseUser.displayName,
-      avatar: firebaseUser.photoURL,
-      authMethod: _getAuthMethod(firebaseUser),
-      isVerified: firebaseUser.emailVerified,
-      createdAt: firebaseUser.metadata.creationTime ?? DateTime.now(),
+      id: supabaseUser.id,
+      email: supabaseUser.email ?? '',
+      name: name,
+      displayName: name,
+      avatar: metadata['avatar_url'],
+      authMethod: _getAuthMethod(supabaseUser),
+      isVerified: supabaseUser.emailConfirmedAt != null,
+      createdAt: DateTime.parse(supabaseUser.createdAt),
     );
   }
 
-  AuthMethod _getAuthMethod(firebase_auth.User user) {
-    final providers = user.providerData;
-    if (providers.any((p) => p.providerId == 'google.com')) {
+  AuthMethod _getAuthMethod(supabase.User user) {
+    final provider = user.appMetadata['provider'] as String?;
+    if (provider == 'google') {
       return AuthMethod.google;
-    } else if (providers.any((p) => p.providerId == 'apple.com')) {
+    } else if (provider == 'apple') {
       return AuthMethod.apple;
     }
     return AuthMethod.email;
   }
 
   Future<User?> getCurrentUser() async {
-    final firebaseUser = _auth.currentUser;
-    return _userFromFirebase(firebaseUser);
+    final supabaseUser = _client.auth.currentUser;
+    return _userFromSupabase(supabaseUser);
   }
 
   Stream<User?> get authStateChanges {
-    return _auth.authStateChanges().map(_userFromFirebase);
+    return _client.auth.onAuthStateChange.map((event) => _userFromSupabase(event.session?.user));
   }
 
   Future<User> loginWithEmail(String email, String password) async {
     try {
-      final credential = await _auth.signInWithEmailAndPassword(
+      final response = await _client.auth.signInWithPassword(
         email: email,
         password: password,
       );
       
-      final user = _userFromFirebase(credential.user);
+      final user = _userFromSupabase(response.user);
       if (user == null) {
         throw Exception('Failed to create user object');
       }
       return user;
-    } on firebase_auth.FirebaseAuthException catch (e) {
-      throw _handleAuthException(e);
+    } on supabase.AuthException catch (e) {
+      throw e.message;
     }
   }
 
   Future<User> signUpWithEmail(String email, String password, String name) async {
     try {
-      final credential = await _auth.createUserWithEmailAndPassword(
+      final response = await _client.auth.signUp(
         email: email,
         password: password,
+        data: {'full_name': name},
       );
       
-      // Update display name
-      await credential.user?.updateDisplayName(name);
-      await credential.user?.reload();
-      
-      final updatedUser = _auth.currentUser;
-      final user = _userFromFirebase(updatedUser);
+      final user = _userFromSupabase(response.user);
       if (user == null) {
         throw Exception('Failed to create user object');
       }
       return user;
-    } on firebase_auth.FirebaseAuthException catch (e) {
-      throw _handleAuthException(e);
+    } on supabase.AuthException catch (e) {
+      throw e.message;
     }
   }
 
@@ -88,19 +87,26 @@ class AuthService {
       }
 
       final googleAuth = await googleUser.authentication;
-      final credential = firebase_auth.GoogleAuthProvider.credential(
-        accessToken: googleAuth.accessToken,
-        idToken: googleAuth.idToken,
+      final accessToken = googleAuth.accessToken;
+      final idToken = googleAuth.idToken;
+
+      if (accessToken == null || idToken == null) {
+        throw Exception('Failed to get Google authentication tokens');
+      }
+
+      final response = await _client.auth.signInWithIdToken(
+        provider: supabase.OAuthProvider.google,
+        idToken: idToken,
+        accessToken: accessToken,
       );
 
-      final userCredential = await _auth.signInWithCredential(credential);
-      final user = _userFromFirebase(userCredential.user);
+      final user = _userFromSupabase(response.user);
       if (user == null) {
         throw Exception('Failed to create user object');
       }
       return user;
-    } on firebase_auth.FirebaseAuthException catch (e) {
-      throw _handleAuthException(e);
+    } on supabase.AuthException catch (e) {
+      throw e.message;
     } catch (e) {
       throw Exception('Google sign in failed: ${e.toString()}');
     }
@@ -108,6 +114,11 @@ class AuthService {
 
   Future<User> loginWithApple() async {
     try {
+      final isAvailable = await SignInWithApple.isAvailable();
+      if (!isAvailable) {
+        throw Exception('Apple Sign In is not available on this device');
+      }
+
       final appleCredential = await SignInWithApple.getAppleIDCredential(
         scopes: [
           AppleIDAuthorizationScopes.email,
@@ -115,19 +126,18 @@ class AuthService {
         ],
       );
 
-      final oauthCredential = firebase_auth.OAuthProvider("apple.com").credential(
-        idToken: appleCredential.identityToken,
-        accessToken: appleCredential.authorizationCode,
+      final response = await _client.auth.signInWithIdToken(
+        provider: supabase.OAuthProvider.apple,
+        idToken: appleCredential.identityToken!,
       );
-
-      final userCredential = await _auth.signInWithCredential(oauthCredential);
-      final user = _userFromFirebase(userCredential.user);
+      
+      final user = _userFromSupabase(response.user);
       if (user == null) {
         throw Exception('Failed to create user object');
       }
       return user;
-    } on firebase_auth.FirebaseAuthException catch (e) {
-      throw _handleAuthException(e);
+    } on supabase.AuthException catch (e) {
+      throw e.message;
     } catch (e) {
       throw Exception('Apple sign in failed: ${e.toString()}');
     }
@@ -135,38 +145,17 @@ class AuthService {
 
   Future<void> logout() async {
     await _googleSignIn.signOut();
-    await _auth.signOut();
+    await _client.auth.signOut();
   }
 
   Future<void> recoverPassword(String email) async {
     try {
-      await _auth.sendPasswordResetEmail(email: email);
-    } on firebase_auth.FirebaseAuthException catch (e) {
-      throw _handleAuthException(e);
-    }
-  }
-
-  String _handleAuthException(firebase_auth.FirebaseAuthException e) {
-    switch (e.code) {
-      case 'user-not-found':
-        return 'No user found with this email.';
-      case 'wrong-password':
-        return 'Wrong password provided.';
-      case 'email-already-in-use':
-        return 'An account already exists with this email.';
-      case 'weak-password':
-        return 'Password is too weak.';
-      case 'invalid-email':
-        return 'Invalid email address.';
-      case 'user-disabled':
-        return 'This account has been disabled.';
-      case 'too-many-requests':
-        return 'Too many requests. Please try again later.';
-      default:
-        return 'Authentication failed: ${e.message}';
+      await _client.auth.resetPasswordForEmail(email);
+    } on supabase.AuthException catch (e) {
+      throw e.message;
     }
   }
 }
 
-// Alias for Firebase User to avoid conflicts
+// Alias for User to avoid breaking changes if some files still use FirebaseUser
 typedef FirebaseUser = User;

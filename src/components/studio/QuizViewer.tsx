@@ -108,17 +108,17 @@ export default function QuizViewer({ topic, onComplete }: QuizViewerProps) {
     if (showResult) {
         return (
             <div className="flex flex-col items-center justify-center h-full p-6 text-center space-y-6">
-                <div className="w-20 h-20 bg-purple-100 rounded-full flex items-center justify-center mb-2">
-                    <Award className="w-10 h-10 text-purple-600" />
+                <div className="w-20 h-20 bg-purple-100 dark:bg-purple-900/30 rounded-full flex items-center justify-center mb-2">
+                    <Award className="w-10 h-10 text-purple-600 dark:text-purple-400" />
                 </div>
                 <div>
                     <h3 className="text-xl font-bold text-gray-800 dark:text-slate-100 mb-2">Quiz Completed!</h3>
                     <p className="text-gray-500 dark:text-slate-400">You scored</p>
-                    <p className="text-4xl font-bold text-purple-600 my-2">{score} / {questions.length}</p>
+                    <p className="text-4xl font-bold text-purple-600 dark:text-purple-400 my-2">{score} / {questions.length}</p>
                 </div>
                 <button
                     onClick={handleRetry}
-                    className="flex items-center gap-2 px-6 py-3 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors shadow-lg shadow-purple-200"
+                    className="flex items-center gap-2 px-6 py-3 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors shadow-lg shadow-purple-200 dark:shadow-purple-900/30"
                 >
                     <RotateCcw className="w-4 h-4" />
                     Try Again
@@ -128,19 +128,19 @@ export default function QuizViewer({ topic, onComplete }: QuizViewerProps) {
     }
 
     return (
-        <div className="flex flex-col h-full bg-white dark:bg-slate-900 rounded-xl shadow-sm border border-gray-100 dark:border-slate-700 overflow-hidden">
+        <div className="flex flex-col h-full min-h-0 min-w-0 max-w-full bg-white dark:bg-slate-900 rounded-xl shadow-sm border border-gray-100 dark:border-slate-700 overflow-hidden">
             {/* Header */}
-            <div className="p-4 border-b border-gray-100 dark:border-slate-700 flex justify-between items-center bg-gray-50 dark:bg-slate-800">
-                <span className="text-sm font-medium text-gray-500 dark:text-slate-400">
+            <div className="p-3 sm:p-4 border-b border-gray-100 dark:border-slate-700 flex justify-between items-center gap-2 bg-gray-50 dark:bg-slate-800 shrink-0 min-w-0">
+                <span className="text-sm font-medium text-gray-500 dark:text-slate-400 truncate min-w-0">
                     Question {currentQuestionIndex + 1}/{questions.length}
                 </span>
-                <span className="text-xs font-bold px-2 py-1 bg-purple-100 text-purple-600 rounded-full">
+                <span className="text-xs font-bold px-2 py-1 bg-purple-100 dark:bg-purple-900/40 text-purple-600 dark:text-purple-300 rounded-full shrink-0 whitespace-nowrap">
                     {topic}
                 </span>
             </div>
 
             {/* Content */}
-            <div className="flex-1 p-6 overflow-y-auto">
+            <div className="flex-1 min-h-0 p-4 sm:p-6 overflow-y-auto overflow-x-hidden">
                 <h3 className="text-lg font-medium text-gray-800 dark:text-slate-100 mb-6 leading-relaxed">
                     {currentQuestion.text}
                 </h3>

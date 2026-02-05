@@ -123,27 +123,26 @@ export default function MindMapViewer({ mindMap }: MindMapViewerProps) {
     }, []);
 
     const handleDownload = () => {
-        // Create SVG download
         const svgElement = document.getElementById('mindmap-svg');
-        if (svgElement) {
-            const svgData = new XMLSerializer().serializeToString(svgElement);
-            const blob = new Blob([svgData], { type: 'image/svg+xml' });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = `${mindMap.topicName.toLowerCase().replace(/\s+/g, '-')}-mindmap.svg`;
-            a.click();
-        }
+        if (!svgElement || !(svgElement instanceof SVGElement)) return;
+        const svgData = new XMLSerializer().serializeToString(svgElement);
+        const blob = new Blob([svgData], { type: 'image/svg+xml' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `${mindMap.topicName.toLowerCase().replace(/\s+/g, '-')}-mindmap.svg`;
+        a.click();
+        URL.revokeObjectURL(url);
     };
 
-    const centralNode = mindMap.nodes[0];
+    const centralNode = mindMap.nodes?.length ? mindMap.nodes[0] : null;
 
     return (
-        <div className="bg-white dark:bg-slate-900 rounded-xl shadow-lg overflow-hidden">
+        <div className="bg-white dark:bg-slate-900 rounded-xl shadow-lg overflow-hidden min-w-0 max-w-full flex flex-col">
             {/* Header */}
-            <div className="bg-gradient-to-r from-indigo-500 to-purple-500 text-white p-3 flex items-center justify-between">
-                <div>
-                    <h3 className="font-bold">{mindMap.topicName}</h3>
+            <div className="bg-gradient-to-r from-indigo-500 to-purple-500 text-white p-3 flex items-center justify-between gap-2 shrink-0 min-w-0">
+                <div className="min-w-0 flex-1">
+                    <h3 className="font-bold truncate text-sm sm:text-base" title={mindMap.topicName}>{mindMap.topicName}</h3>
                     <p className="text-xs text-indigo-200">Interactive Mind Map</p>
                 </div>
                 <div className="flex gap-1">
@@ -174,8 +173,8 @@ export default function MindMapViewer({ mindMap }: MindMapViewerProps) {
                 </div>
             </div>
 
-            {/* Mind Map Canvas */}
-            <div className="relative overflow-auto bg-gradient-to-br from-slate-50 to-purple-50 dark:from-slate-950 dark:via-slate-900 dark:to-slate-800" style={{ height: '350px' }}>
+            {/* Mind Map Canvas - responsive height for small panels and mobile */}
+            <div className="relative overflow-auto bg-gradient-to-br from-slate-50 to-purple-50 dark:from-slate-950 dark:via-slate-900 dark:to-slate-800 min-h-[220px] sm:min-h-[280px] max-h-[50vh] sm:max-h-[350px] flex-1">
                 <svg
                     id="mindmap-svg"
                     viewBox="0 0 400 300"
@@ -183,8 +182,10 @@ export default function MindMapViewer({ mindMap }: MindMapViewerProps) {
                     style={{ transform: `scale(${zoom})`, transformOrigin: 'center' }}
                 >
                     {/* Central node and children */}
-                    {centralNode && (
+                    {centralNode ? (
                         <MindMapNodeComponent node={centralNode} />
+                    ) : (
+                        <text x="200" y="150" textAnchor="middle" fill="currentColor" className="text-slate-500">No nodes to display</text>
                     )}
                 </svg>
 

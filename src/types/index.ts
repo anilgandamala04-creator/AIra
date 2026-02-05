@@ -2,6 +2,9 @@
 // USER & AUTHENTICATION TYPES
 // ============================================
 
+export type UserRole = 'student' | 'teacher' | 'admin';
+export type SubscriptionPlan = 'simple' | 'pro' | 'enterprise';
+
 export interface User {
     id: string;
     email: string;
@@ -10,6 +13,8 @@ export interface User {
     avatar?: string;
     authMethod: 'google' | 'apple' | 'email' | 'guest';
     isVerified: boolean;
+    role: UserRole;
+    plan: SubscriptionPlan;
     createdAt: string;
 }
 
@@ -50,6 +55,11 @@ export interface UserProfile {
     organization?: string;
     location?: string;
     timezone: string;
+
+    // Role and subscription
+    role: UserRole;
+    plan: SubscriptionPlan;
+    onboardingCompleted: boolean;
 
     // Professional info
     profession: Profession | null;
@@ -193,6 +203,13 @@ export interface TeachingSession {
     progress: number;
     teachingSteps: TeachingStep[];
     doubts: Doubt[];
+    /** Professional domain context for strict domain isolation */
+    professionId?: string;
+    professionName?: string;
+    subProfessionId?: string;
+    subProfessionName?: string;
+    subjectId?: string;
+    subjectName?: string;
 }
 
 export interface TeachingState {
@@ -246,6 +263,8 @@ export interface ChatMessage {
     content: string;
     timestamp: string;
     attachments?: Attachment[];
+    /** True when AI failed or returned empty; show retry-friendly UI. */
+    isError?: boolean;
 }
 
 export interface Attachment {
@@ -366,8 +385,13 @@ export interface AppSettings {
         responseStyle: 'concise' | 'detailed' | 'interactive' | 'adaptive';
         analogiesEnabled: boolean;
         clinicalExamplesEnabled: boolean;
+        /** Preferred AI model for chat, doubts, and studio (notes/mind map/flashcards). Default: llama. */
+        preferredAiModel?: 'llama' | 'mistral';
     };
 }
+
+/** AI model type used by backend and frontend API. */
+export type AiModelType = 'llama' | 'mistral';
 
 export interface SettingsTemplate {
     id: string;

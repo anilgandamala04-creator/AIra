@@ -1,4 +1,7 @@
 import { motion } from 'framer-motion';
+import { useShallow } from 'zustand/react/shallow';
+import { useSettingsStore } from '../../stores/settingsStore';
+import { DURATION_SLOW } from '../../utils/animations';
 
 interface LoadingSpinnerProps {
     size?: 'sm' | 'md' | 'lg';
@@ -6,6 +9,7 @@ interface LoadingSpinnerProps {
 }
 
 export default function LoadingSpinner({ size = 'md', className = '' }: LoadingSpinnerProps) {
+    const reduceAnimations = useSettingsStore(useShallow((state) => state.settings.accessibility.reduceAnimations));
     const sizeClasses = {
         sm: 'w-4 h-4',
         md: 'w-8 h-8',
@@ -15,8 +19,8 @@ export default function LoadingSpinner({ size = 'md', className = '' }: LoadingS
     return (
         <motion.div
             className={`${sizeClasses[size]} ${className}`}
-            animate={{ rotate: 360 }}
-            transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
+            animate={reduceAnimations ? undefined : { rotate: 360 }}
+            transition={reduceAnimations ? undefined : { duration: DURATION_SLOW * 2.5, repeat: Infinity, ease: 'linear' }}
         >
             <svg
                 className="w-full h-full text-purple-500"

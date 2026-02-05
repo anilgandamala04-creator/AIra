@@ -9,6 +9,7 @@ import '../screens/teaching/teaching_screen.dart';
 import '../screens/profile/profile_screen.dart';
 import '../screens/settings/settings_screen.dart';
 import '../providers/auth_provider.dart';
+import '../utils/page_transitions.dart';
 
 final routerProvider = Provider<GoRouter>((ref) {
   final authState = ref.watch(authProvider);
@@ -35,35 +36,52 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: '/login',
         name: 'login',
-        builder: (context, state) => const LoginScreen(),
+        pageBuilder: (context, state) => const LoginScreen().toFadePage(
+          key: const ValueKey('login'),
+        ),
       ),
       GoRoute(
         path: '/onboarding',
         name: 'onboarding',
-        builder: (context, state) => const OnboardingScreen(),
+        pageBuilder: (context, state) => const OnboardingScreen().toFadeSlidePage(
+          key: const ValueKey('onboarding'),
+          direction: SlideDirection.up,
+        ),
       ),
       GoRoute(
         path: '/dashboard',
         name: 'dashboard',
-        builder: (context, state) => const DashboardScreen(),
+        pageBuilder: (context, state) => const DashboardScreen().toFadeSlidePage(
+          key: const ValueKey('dashboard'),
+          direction: SlideDirection.up,
+        ),
       ),
       GoRoute(
         path: '/learn/:topicId',
         name: 'teaching',
-        builder: (context, state) {
+        pageBuilder: (context, state) {
           final topicId = state.pathParameters['topicId'] ?? '';
-          return TeachingScreen(topicId: topicId);
+          return TeachingScreen(topicId: topicId).toSlidePage(
+            key: ValueKey('teaching-$topicId'),
+            direction: SlideDirection.left,
+          );
         },
       ),
       GoRoute(
         path: '/profile',
         name: 'profile',
-        builder: (context, state) => const ProfileScreen(),
+        pageBuilder: (context, state) => const ProfileScreen().toSlidePage(
+          key: const ValueKey('profile'),
+          direction: SlideDirection.left,
+        ),
       ),
       GoRoute(
         path: '/settings',
         name: 'settings',
-        builder: (context, state) => const SettingsScreen(),
+        pageBuilder: (context, state) => const SettingsScreen().toSlidePage(
+          key: const ValueKey('settings'),
+          direction: SlideDirection.left,
+        ),
       ),
     ],
     errorBuilder: (context, state) => Scaffold(

@@ -39,7 +39,7 @@ export function BloodFlowVisual({ isSpeaking, stepId }: VisualProps) {
     const { speechProgress } = useVisualSync(stepId, isSpeaking);
     
     return (
-        <svg viewBox="0 0 400 280" className="w-full h-auto">
+        <svg viewBox="0 0 400 280" className="w-full h-full" preserveAspectRatio="xMidYMid meet">
             <defs>
                 <marker id="arrowRed" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
                     <polygon points="0 0, 10 3.5, 0 7" fill="#ef4444" />
@@ -125,7 +125,7 @@ export function CoronaryArteriesVisual({ isSpeaking, stepId }: VisualProps) {
     const { speechProgress } = useVisualSync(stepId, isSpeaking);
     
     return (
-        <svg viewBox="0 0 400 280" className="w-full h-auto">
+        <svg viewBox="0 0 400 280" className="w-full h-full" preserveAspectRatio="xMidYMid meet">
             <rect width="100%" height="100%" fill="transparent" />
 
             {/* Heart shape */}
@@ -194,7 +194,7 @@ export function CoronaryArteriesVisual({ isSpeaking, stepId }: VisualProps) {
 
 export function BrainStructureVisual({ isSpeaking }: VisualProps) {
     return (
-        <svg viewBox="0 0 400 280" className="w-full h-auto">
+        <svg viewBox="0 0 400 280" className="w-full h-full" preserveAspectRatio="xMidYMid meet">
             <rect width="100%" height="100%" fill="transparent" />
 
             {/* Brain outline */}
@@ -260,7 +260,7 @@ export function BrainStructureVisual({ isSpeaking }: VisualProps) {
 
 export function NeuronVisual({ isSpeaking }: VisualProps) {
     return (
-        <svg viewBox="0 0 400 250" className="w-full h-auto">
+        <svg viewBox="0 0 400 250" className="w-full h-full" preserveAspectRatio="xMidYMid meet">
             <rect width="100%" height="100%" fill="transparent" />
 
             {/* Cell body (soma) */}
@@ -332,7 +332,7 @@ export function NeuronVisual({ isSpeaking }: VisualProps) {
 
 export function ReactComponentVisual({ isSpeaking }: VisualProps) {
     return (
-        <svg viewBox="0 0 400 280" className="w-full h-auto">
+        <svg viewBox="0 0 400 280" className="w-full h-full" preserveAspectRatio="xMidYMid meet">
             <rect width="100%" height="100%" fill="transparent" />
 
             {/* React logo atom */}
@@ -389,7 +389,7 @@ export function SortingAlgorithmVisual({ isSpeaking }: VisualProps) {
     const displayBars = isSpeaking ? sortedBars : bars;
 
     return (
-        <svg viewBox="0 0 400 250" className="w-full h-auto">
+        <svg viewBox="0 0 400 250" className="w-full h-full" preserveAspectRatio="xMidYMid meet">
             <rect width="100%" height="100%" fill="transparent" />
 
             {/* Bars */}
@@ -438,7 +438,7 @@ export function SortingAlgorithmVisual({ isSpeaking }: VisualProps) {
 
 export function GraphVisualizationVisual({ isSpeaking }: VisualProps) {
     return (
-        <svg viewBox="0 0 400 280" className="w-full h-auto">
+        <svg viewBox="0 0 400 280" className="w-full h-full" preserveAspectRatio="xMidYMid meet">
             <rect width="100%" height="100%" fill="transparent" />
 
             {/* Edges */}
@@ -483,7 +483,7 @@ export function GraphVisualizationVisual({ isSpeaking }: VisualProps) {
 // SQL Schema / Relational Model Visual
 export function SQLBasicsVisual({ isSpeaking }: VisualProps) {
     return (
-        <svg viewBox="0 0 400 280" className="w-full h-auto">
+        <svg viewBox="0 0 400 280" className="w-full h-full" preserveAspectRatio="xMidYMid meet">
             <rect width="100%" height="100%" fill="transparent" />
 
             {/* Users table */}
@@ -613,7 +613,7 @@ export function SQLBasicsVisual({ isSpeaking }: VisualProps) {
 // API Design Visual - request/response flow
 export function APIDesignVisual({ isSpeaking }: VisualProps) {
     return (
-        <svg viewBox="0 0 400 260" className="w-full h-auto">
+        <svg viewBox="0 0 400 260" className="w-full h-full" preserveAspectRatio="xMidYMid meet">
             <rect width="100%" height="100%" fill="transparent" />
 
             {/* Client */}
@@ -769,7 +769,7 @@ export function APIDesignVisual({ isSpeaking }: VisualProps) {
 
 export function DCCircuitVisual({ isSpeaking }: VisualProps) {
     return (
-        <svg viewBox="0 0 400 250" className="w-full h-auto">
+        <svg viewBox="0 0 400 250" className="w-full h-full" preserveAspectRatio="xMidYMid meet">
             <rect width="100%" height="100%" fill="transparent" />
 
             {/* Circuit path */}
@@ -814,7 +814,7 @@ export function DCCircuitVisual({ isSpeaking }: VisualProps) {
 
 export function ACCircuitVisual({ isSpeaking }: VisualProps) {
     return (
-        <svg viewBox="0 0 400 280" className="w-full h-auto">
+        <svg viewBox="0 0 400 280" className="w-full h-full" preserveAspectRatio="xMidYMid meet">
             <rect width="100%" height="100%" fill="transparent" />
 
             {/* AC Waveform */}
@@ -862,7 +862,7 @@ export function ACCircuitVisual({ isSpeaking }: VisualProps) {
 
 export function NewtonsLawsVisual({ isSpeaking }: VisualProps) {
     return (
-        <svg viewBox="0 0 400 280" className="w-full h-auto">
+        <svg viewBox="0 0 400 280" className="w-full h-full" preserveAspectRatio="xMidYMid meet">
             <rect width="100%" height="100%" fill="transparent" />
 
             {/* Object */}
@@ -901,7 +901,7 @@ export function NewtonsLawsVisual({ isSpeaking }: VisualProps) {
 
 export function KinematicsVisual({ isSpeaking }: VisualProps) {
     return (
-        <svg viewBox="0 0 400 280" className="w-full h-auto">
+        <svg viewBox="0 0 400 280" className="w-full h-full" preserveAspectRatio="xMidYMid meet">
             <rect width="100%" height="100%" fill="transparent" />
 
             {/* Axis */}
@@ -947,7 +947,7 @@ export function KinematicsVisual({ isSpeaking }: VisualProps) {
 
 export function DNAStructureVisual({ isSpeaking }: VisualProps) {
     return (
-        <svg viewBox="0 0 400 280" className="w-full h-auto">
+        <svg viewBox="0 0 400 280" className="w-full h-full" preserveAspectRatio="xMidYMid meet">
             <rect width="100%" height="100%" fill="transparent" />
 
             {/* Double helix backbone */}
@@ -994,7 +994,7 @@ export function DNAStructureVisual({ isSpeaking }: VisualProps) {
 
 export function DNAReplicationVisual({ isSpeaking }: VisualProps) {
     return (
-        <svg viewBox="0 0 400 280" className="w-full h-auto">
+        <svg viewBox="0 0 400 280" className="w-full h-full" preserveAspectRatio="xMidYMid meet">
             <rect width="100%" height="100%" fill="transparent" />
 
             {/* Original DNA strands separating */}
@@ -1044,7 +1044,7 @@ export function DNAReplicationVisual({ isSpeaking }: VisualProps) {
 
 export function DNATranscriptionVisual({ isSpeaking }: VisualProps) {
     return (
-        <svg viewBox="0 0 400 280" className="w-full h-auto">
+        <svg viewBox="0 0 400 280" className="w-full h-full" preserveAspectRatio="xMidYMid meet">
             <rect width="100%" height="100%" fill="transparent" />
 
             {/* DNA double strand */}
@@ -1103,7 +1103,7 @@ export function DNATranscriptionVisual({ isSpeaking }: VisualProps) {
 
 export function DNATranslationVisual({ isSpeaking }: VisualProps) {
     return (
-        <svg viewBox="0 0 400 280" className="w-full h-auto">
+        <svg viewBox="0 0 400 280" className="w-full h-full" preserveAspectRatio="xMidYMid meet">
             <rect width="100%" height="100%" fill="transparent" />
 
             {/* mRNA strand */}
@@ -1163,7 +1163,7 @@ export function DNATranslationVisual({ isSpeaking }: VisualProps) {
 
 export function HeartValvesVisual({ isSpeaking }: VisualProps) {
     return (
-        <svg viewBox="0 0 400 280" className="w-full h-auto">
+        <svg viewBox="0 0 400 280" className="w-full h-full" preserveAspectRatio="xMidYMid meet">
             <rect width="100%" height="100%" fill="transparent" />
             <motion.path d="M 200 240 C 100 190 80 110 120 70 C 160 40 200 60 200 90 C 200 60 240 40 280 70 C 320 110 300 190 200 240"
                 fill="none" stroke="#f87171" strokeWidth="2" initial={{ pathLength: 0 }} animate={{ pathLength: 1 }} transition={{ duration: 2 }} />
@@ -1187,7 +1187,7 @@ export function HeartValvesVisual({ isSpeaking }: VisualProps) {
 
 export function ECGBasicsVisual({ isSpeaking }: VisualProps) {
     return (
-        <svg viewBox="0 0 400 200" className="w-full h-auto">
+        <svg viewBox="0 0 400 200" className="w-full h-full" preserveAspectRatio="xMidYMid meet">
             <rect width="100%" height="100%" fill="transparent" />
             <motion.path d="M 20 100 L 60 100 L 70 90 L 80 100 L 100 100 L 110 50 L 120 150 L 130 80 L 140 100 L 180 100 L 200 80 L 220 100 L 260 100 L 270 90 L 280 100 L 300 100 L 310 50 L 320 150 L 330 80 L 340 100 L 380 100"
                 fill="none" stroke="#fef08a" strokeWidth="3" initial={{ pathLength: 0 }} animate={{ pathLength: 1 }} transition={{ duration: 3 }} />
@@ -1203,7 +1203,7 @@ export function ECGBasicsVisual({ isSpeaking }: VisualProps) {
 
 export function SpinalCordVisual({ isSpeaking }: VisualProps) {
     return (
-        <svg viewBox="0 0 400 280" className="w-full h-auto">
+        <svg viewBox="0 0 400 280" className="w-full h-full" preserveAspectRatio="xMidYMid meet">
             <rect width="100%" height="100%" fill="transparent" />
             <motion.path d="M 200 30 L 200 250" fill="none" stroke="#fbbf24" strokeWidth="8" initial={{ pathLength: 0 }} animate={{ pathLength: 1 }} transition={{ duration: 2 }} />
             {/* Vertebrae segments */}
@@ -1226,7 +1226,7 @@ export function SpinalCordVisual({ isSpeaking }: VisualProps) {
 
 export function StrokeVisual({ isSpeaking }: VisualProps) {
     return (
-        <svg viewBox="0 0 400 280" className="w-full h-auto">
+        <svg viewBox="0 0 400 280" className="w-full h-full" preserveAspectRatio="xMidYMid meet">
             <rect width="100%" height="100%" fill="transparent" />
             <motion.ellipse cx="200" cy="120" rx="100" ry="80" fill="rgba(251, 191, 36, 0.2)" stroke="#fbbf24" strokeWidth="2"
                 initial={{ pathLength: 0 }} animate={{ pathLength: 1 }} transition={{ duration: 1.5 }} />
@@ -1255,7 +1255,7 @@ export function StrokeVisual({ isSpeaking }: VisualProps) {
 
 export function SEOVisual({ isSpeaking }: VisualProps) {
     return (
-        <svg viewBox="0 0 400 280" className="w-full h-auto">
+        <svg viewBox="0 0 400 280" className="w-full h-full" preserveAspectRatio="xMidYMid meet">
             <rect width="100%" height="100%" fill="transparent" />
             {/* Funnel shape */}
             <motion.path d="M 100 50 L 300 50 L 250 130 L 150 130 Z" fill="rgba(59, 130, 246, 0.3)" stroke="#3b82f6" strokeWidth="2"
@@ -1277,7 +1277,7 @@ export function SEOVisual({ isSpeaking }: VisualProps) {
 
 export function StockMarketVisual({ isSpeaking }: VisualProps) {
     return (
-        <svg viewBox="0 0 400 250" className="w-full h-auto">
+        <svg viewBox="0 0 400 250" className="w-full h-full" preserveAspectRatio="xMidYMid meet">
             <rect width="100%" height="100%" fill="transparent" />
             {/* Axis */}
             <line x1="50" y1="200" x2="370" y2="200" stroke="rgba(255,255,255,0.3)" strokeWidth="1" />
@@ -1309,7 +1309,7 @@ export function StockMarketVisual({ isSpeaking }: VisualProps) {
 
 export function ContractFormationVisual({ isSpeaking }: VisualProps) {
     return (
-        <svg viewBox="0 0 400 280" className="w-full h-auto">
+        <svg viewBox="0 0 400 280" className="w-full h-full" preserveAspectRatio="xMidYMid meet">
             <rect width="100%" height="100%" fill="transparent" />
             {/* Process boxes */}
             {[
@@ -1340,7 +1340,7 @@ export function ContractFormationVisual({ isSpeaking }: VisualProps) {
 
 export function AnxietyVisual({ isSpeaking }: VisualProps) {
     return (
-        <svg viewBox="0 0 400 280" className="w-full h-auto">
+        <svg viewBox="0 0 400 280" className="w-full h-full" preserveAspectRatio="xMidYMid meet">
             <rect width="100%" height="100%" fill="transparent" />
             {/* Brain with highlighted area */}
             <motion.ellipse cx="200" cy="120" rx="80" ry="60" fill="rgba(139, 92, 246, 0.2)" stroke="#8b5cf6" strokeWidth="2"
@@ -1366,7 +1366,7 @@ export function AnxietyVisual({ isSpeaking }: VisualProps) {
 
 export function CBTVisual({ isSpeaking }: VisualProps) {
     return (
-        <svg viewBox="0 0 400 280" className="w-full h-auto">
+        <svg viewBox="0 0 400 280" className="w-full h-full" preserveAspectRatio="xMidYMid meet">
             <rect width="100%" height="100%" fill="transparent" />
             {/* Triangle of CBT */}
             <motion.path d="M 200 60 L 100 200 L 300 200 Z" fill="none" stroke="#fbbf24" strokeWidth="2"
@@ -1396,7 +1396,7 @@ export function CBTVisual({ isSpeaking }: VisualProps) {
 
 export function SupervisedLearningVisual({ isSpeaking }: VisualProps) {
     return (
-        <svg viewBox="0 0 400 280" className="w-full h-auto">
+        <svg viewBox="0 0 400 280" className="w-full h-full" preserveAspectRatio="xMidYMid meet">
             <rect width="100%" height="100%" fill="transparent" />
             {/* Data input */}
             <motion.rect x="30" y="100" width="60" height="80" rx="5" fill="rgba(59, 130, 246, 0.3)" stroke="#3b82f6" strokeWidth="2"
@@ -1425,7 +1425,7 @@ export function SupervisedLearningVisual({ isSpeaking }: VisualProps) {
 
 export function NeuralNetworkVisual({ isSpeaking }: VisualProps) {
     return (
-        <svg viewBox="0 0 400 280" className="w-full h-auto">
+        <svg viewBox="0 0 400 280" className="w-full h-full" preserveAspectRatio="xMidYMid meet">
             <rect width="100%" height="100%" fill="transparent" />
             {/* Input layer */}
             {[80, 120, 160, 200].map((y, i) => (
@@ -1461,7 +1461,7 @@ export function NeuralNetworkVisual({ isSpeaking }: VisualProps) {
 
 export function EncryptionVisual({ isSpeaking }: VisualProps) {
     return (
-        <svg viewBox="0 0 400 250" className="w-full h-auto">
+        <svg viewBox="0 0 400 250" className="w-full h-full" preserveAspectRatio="xMidYMid meet">
             <rect width="100%" height="100%" fill="transparent" />
             {/* Plaintext */}
             <motion.rect x="30" y="90" width="80" height="50" rx="5" fill="rgba(34, 197, 94, 0.3)" stroke="#22c55e" strokeWidth="2"
@@ -1496,7 +1496,7 @@ export function EncryptionVisual({ isSpeaking }: VisualProps) {
 
 export function ThermodynamicsVisual({ isSpeaking }: VisualProps) {
     return (
-        <svg viewBox="0 0 400 280" className="w-full h-auto">
+        <svg viewBox="0 0 400 280" className="w-full h-full" preserveAspectRatio="xMidYMid meet">
             <rect width="100%" height="100%" fill="transparent" />
             {/* Container */}
             <motion.rect x="120" y="60" width="160" height="140" rx="5" fill="none" stroke="#fbbf24" strokeWidth="2"
@@ -1532,7 +1532,7 @@ export function ThermodynamicsVisual({ isSpeaking }: VisualProps) {
 
 export function CellStructureVisual({ isSpeaking }: VisualProps) {
     return (
-        <svg viewBox="0 0 400 280" className="w-full h-auto">
+        <svg viewBox="0 0 400 280" className="w-full h-full" preserveAspectRatio="xMidYMid meet">
             <rect width="100%" height="100%" fill="transparent" />
             {/* Cell membrane */}
             <motion.ellipse cx="200" cy="140" rx="150" ry="100" fill="rgba(59, 130, 246, 0.1)" stroke="#3b82f6" strokeWidth="3"
@@ -1560,7 +1560,7 @@ export function CellStructureVisual({ isSpeaking }: VisualProps) {
 
 export function HeredityVisual({ isSpeaking }: VisualProps) {
     return (
-        <svg viewBox="0 0 400 280" className="w-full h-auto">
+        <svg viewBox="0 0 400 280" className="w-full h-full" preserveAspectRatio="xMidYMid meet">
             <rect width="100%" height="100%" fill="transparent" />
             {/* Punnett Square */}
             <motion.g initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.5 }}>
@@ -1593,7 +1593,7 @@ export function HeredityVisual({ isSpeaking }: VisualProps) {
 
 export function DefaultTopicVisual({ title }: VisualProps) {
     return (
-        <svg viewBox="0 0 400 280" className="w-full h-auto">
+        <svg viewBox="0 0 400 280" className="w-full h-full" preserveAspectRatio="xMidYMid meet">
             <defs>
                 <linearGradient id="defaultGradient" x1="0%" y1="0%" x2="100%" y2="100%">
                     <stop offset="0%" stopColor="#22c55e" stopOpacity="0.3" />
@@ -1619,168 +1619,5 @@ export function DefaultTopicVisual({ title }: VisualProps) {
             <text x="200" y="250" fontSize="11" fill="#86efac" textAnchor="middle">Visual content loading...</text>
         </svg>
     );
-}
-
-// ============================================
-// VISUAL REGISTRY - COMPREHENSIVE
-// ============================================
-
-type VisualComponent = (props: VisualProps) => JSX.Element;
-
-export const TopicVisualRegistry: Record<string, VisualComponent> = {
-    // Medicine - Cardiology
-    'heart-structure': HeartValvesVisual,
-    'valves': HeartValvesVisual,
-    'blood-flow': BloodFlowVisual,
-    'coronary-arteries': CoronaryArteriesVisual,
-    'ecg-basics': ECGBasicsVisual,
-    'echo': ECGBasicsVisual,
-    'stress-test': ECGBasicsVisual,
-    'arrhythmias': ECGBasicsVisual,
-    'heart-failure': BloodFlowVisual,
-
-    // Medicine - Neurology
-    'brain-structure': BrainStructureVisual,
-    'neurons': NeuronVisual,
-    'spinal-cord': SpinalCordVisual,
-    'stroke': StrokeVisual,
-    'epilepsy': BrainStructureVisual,
-
-    // Medicine - Oncology
-    'cancer-biology': CellStructureVisual,
-    'staging': CellStructureVisual,
-
-    // Medicine - Pediatrics
-    'milestones': DefaultTopicVisual,
-    'vaccines': DefaultTopicVisual,
-
-    // Engineering - Software
-    'react-basics': ReactComponentVisual,
-    'state-management': ReactComponentVisual,
-    'api-design': APIDesignVisual,
-    'sorting': SortingAlgorithmVisual,
-    'graphs': GraphVisualizationVisual,
-    'dynamic-programming': GraphVisualizationVisual,
-    'sql-basics': SQLBasicsVisual,
-    'nosql': GraphVisualizationVisual,
-
-    // Engineering - Mechanical
-    'laws-thermo': ThermodynamicsVisual,
-    'heat-transfer': ThermodynamicsVisual,
-    'entropy': ThermodynamicsVisual,
-    'statics': NewtonsLawsVisual,
-    'dynamics': KinematicsVisual,
-
-    // Engineering - Electrical
-    'dc-circuits': DCCircuitVisual,
-    'ac-circuits': ACCircuitVisual,
-
-    // Engineering - Civil
-    'beams': NewtonsLawsVisual,
-    'foundations': NewtonsLawsVisual,
-
-    // Law
-    'contract-formation': ContractFormationVisual,
-    'breach': ContractFormationVisual,
-    'remedies': ContractFormationVisual,
-    'directors': ContractFormationVisual,
-    'shareholders': ContractFormationVisual,
-    'investigation': ContractFormationVisual,
-    'trial': ContractFormationVisual,
-    'sentencing': ContractFormationVisual,
-    'mens-rea': ContractFormationVisual,
-    'defenses': ContractFormationVisual,
-    'first-amendment': ContractFormationVisual,
-    'due-process': ContractFormationVisual,
-
-    // Business - Marketing
-    'seo': SEOVisual,
-    'social-media': SEOVisual,
-    'content-marketing': SEOVisual,
-    'brand-identity': SEOVisual,
-    'positioning': SEOVisual,
-
-    // Business - Finance
-    'stocks': StockMarketVisual,
-    'bonds': StockMarketVisual,
-    'portfolio': StockMarketVisual,
-    'financial-statements': StockMarketVisual,
-    'ratio-analysis': StockMarketVisual,
-
-    // Business - Management
-    'leadership-styles': SEOVisual,
-    'team-building': SEOVisual,
-
-    // Science - Physics
-    'newtons-laws': NewtonsLawsVisual,
-    'kinematics': KinematicsVisual,
-    'energy': ThermodynamicsVisual,
-    'electric-fields': ACCircuitVisual,
-    'magnetic-fields': ACCircuitVisual,
-
-    // Science - Biology
-    'dna-structure': DNAStructureVisual,
-    'dna-replication': DNAReplicationVisual,
-    'replication': DNAReplicationVisual,
-    'transcription': DNATranscriptionVisual,
-    'translation': DNATranslationVisual,
-    'heredity': HeredityVisual,
-    'gene-expression': DNATranscriptionVisual,
-    'cell-structure': CellStructureVisual,
-    'cell-division': CellStructureVisual,
-
-    // Science - Chemistry
-    'hydrocarbons': DNAStructureVisual,
-    'functional-groups': DNAStructureVisual,
-
-    // Arts
-    'renaissance': DefaultTopicVisual,
-    'modernism': DefaultTopicVisual,
-    'contemporary': DefaultTopicVisual,
-    'color-theory': DefaultTopicVisual,
-    'composition': DefaultTopicVisual,
-    'narrative': DefaultTopicVisual,
-    'themes': DefaultTopicVisual,
-
-    // Technology - AI
-    'supervised': SupervisedLearningVisual,
-    'neural-networks': NeuralNetworkVisual,
-    'unsupervised': SupervisedLearningVisual,
-    'text-processing': SupervisedLearningVisual,
-    'transformers': NeuralNetworkVisual,
-
-    // Technology - Cybersecurity
-    'firewalls': EncryptionVisual,
-    'encryption': EncryptionVisual,
-    'penetration': EncryptionVisual,
-    'symmetric': EncryptionVisual,
-    'asymmetric': EncryptionVisual,
-
-    // Technology - Cloud
-    'ec2': SupervisedLearningVisual,
-    's3': SupervisedLearningVisual,
-
-    // Education
-    'active-learning': SEOVisual,
-    'assessment': SEOVisual,
-    'differentiation': SEOVisual,
-    'learning-objectives': SEOVisual,
-    'backward-design': SEOVisual,
-    'iep': SEOVisual,
-    'accommodations': SEOVisual,
-
-    // Psychology
-    'anxiety': AnxietyVisual,
-    'depression': AnxietyVisual,
-    'ptsd': AnxietyVisual,
-    'cbt': CBTVisual,
-    'psychodynamic': CBTVisual,
-    'memory-types': BrainStructureVisual,
-    'forgetting': BrainStructureVisual,
-};
-
-// Get visual component for a topic
-export function getTopicVisual(topicId: string): VisualComponent {
-    return TopicVisualRegistry[topicId] || DefaultTopicVisual;
 }
 

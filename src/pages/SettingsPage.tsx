@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
+import { useShallow } from 'zustand/react/shallow';
 import { useSettingsStore } from '../stores/settingsStore';
 import { useUserStore } from '../stores/userStore';
 import { useAuthStore } from '../stores/authStore';
@@ -11,16 +12,28 @@ import {
     ArrowLeft, User, BookOpen, Eye, Bot, Shield, Download, Upload,
     Moon, Sun, Globe, Save, RotateCcw, Volume2
 } from 'lucide-react';
-import PageTransition from '../components/common/PageTransition';
-import { getHumanVoiceScore, pickBestHumanVoice } from '../utils/voice';
+import { getHumanVoiceScore } from '../utils/voice';
+import { narrateText } from '../services/narration';
+import {
+    TRANSITION_DEFAULT,
+    tapScale,
+    springTransition,
+    cardHoverTap,
+    cardTransition,
+    staggerListFast,
+    listItemVariants,
+} from '../utils/animations';
+import AnimatedButton from '../components/common/AnimatedButton';
+import SkipToMainInHeader from '../components/common/SkipToMainInHeader';
 
 type SettingsTab = 'account' | 'learning' | 'accessibility' | 'ai' | 'privacy';
 
 export default function SettingsPage() {
     const { t } = useTranslation();
     const navigate = useNavigate();
+    const settings = useSettingsStore(useShallow((state) => state.settings));
+    const reduceAnimations = useSettingsStore(useShallow((state) => state.settings.accessibility.reduceAnimations));
     const {
-        settings,
         updateSettings,
         updateNotifications,
         updateAccessibility,
@@ -103,27 +116,44 @@ export default function SettingsPage() {
 
     const handleImport = (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
-        if (file) {
-            const reader = new FileReader();
-            reader.onload = (event) => {
-                const result = event.target?.result as string;
-                if (result) {
-                    const success = importSettings(result);
-                    if (success) {
-                        toast.success('Settings imported successfully');
-                        handleSave();
-                    } else {
-                        toast.error('Failed to import settings. Please check the file format.');
-                    }
-                }
-            };
-            reader.onerror = () => {
-                toast.error('Failed to read file. Please try again.');
-            };
-            reader.readAsText(file);
-            // Reset input to allow re-importing the same file
+        if (!file) return;
+        
+        // Validate file type
+        if (!file.name.endsWith('.json')) {
+            toast.error('Please select a valid JSON file.');
             e.target.value = '';
+            return;
         }
+        
+        const reader = new FileReader();
+        reader.onload = (event) => {
+            try {
+                const result = event.target?.result as string;
+                if (!result) {
+                    toast.error('File is empty. Please select a valid settings file.');
+                    e.target.value = '';
+                    return;
+                }
+                
+                const success = importSettings(result);
+                if (success) {
+                    toast.success('Settings imported successfully');
+                    handleSave();
+                } else {
+                    toast.error('Failed to import settings. Please check the file format.');
+                }
+            } catch (error) {
+                console.error('Import error:', error);
+                toast.error('Failed to import settings. Please check the file format.');
+            } finally {
+                e.target.value = '';
+            }
+        };
+        reader.onerror = () => {
+            toast.error('Failed to read file. Please try again.');
+            e.target.value = '';
+        };
+        reader.readAsText(file);
     };
 
     const tabs = [
@@ -136,34 +166,48 @@ export default function SettingsPage() {
 
     return (
         <div className="min-h-screen bg-gradient-to-br from-indigo-50 via-purple-50 to-pink-50 dark:from-slate-950 dark:via-slate-900 dark:to-slate-800">
-            {/* Header */}
-            <header className="bg-white/80 dark:bg-slate-900/70 backdrop-blur-md shadow-sm sticky top-0 z-50">
-                <div className="max-w-5xl mx-auto px-4 py-3 flex items-center gap-4">
-                    <button
+            {/* Header - same minHeight as other pages for consistent icon alignment */}
+            <header className="bg-white/80 dark:bg-slate-900/70 backdrop-blur-md shadow-sm sticky top-0 z-50 safe-top flex items-center" style={{ minHeight: 'var(--layout-header-height)' }}>
+                <SkipToMainInHeader />
+                <div className="max-w-5xl mx-auto px-3 sm:px-4 flex items-center gap-2 sm:gap-4 flex-1 min-w-0" style={{ minHeight: 'var(--layout-header-height)' }}>
+                    <motion.button
                         onClick={() => navigate(-1)}
-                        className="p-2 hover:bg-gray-100 dark:hover:bg-slate-800 rounded-lg transition-colors"
+                        className="p-2 min-h-[44px] min-w-[44px] sm:min-h-0 sm:min-w-0 flex items-center justify-center hover:bg-gray-100 dark:hover:bg-slate-800 rounded-lg transition-ui touch-manipulation"
+                        whileHover={reduceAnimations ? undefined : { scale: 1.05 }}
+                        whileTap={reduceAnimations ? undefined : tapScale}
+                        transition={springTransition}
                     >
-                        <ArrowLeft className="w-5 h-5 text-gray-600 dark:text-slate-300" />
-                    </button>
-                    <h1 className="text-xl font-bold text-gray-800 dark:text-slate-100">{t('settings')}</h1>
+                        <ArrowLeft className="w-5 h-5 text-gray-600 dark:text-slate-300 shrink-0" aria-hidden />
+                    </motion.button>
+                    <h1 className="text-lg sm:text-xl font-bold text-gray-800 dark:text-slate-100 truncate min-w-0 flex-1">{t('settings')}</h1>
 
-                    <div className="flex-1" />
+                    <div className="flex-1 min-w-2" aria-hidden />
 
-                    <button
+                    <motion.button
+                        key={saved ? 'saved' : 'idle'}
                         onClick={handleSave}
-                        className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-purple-500 to-pink-500 text-white rounded-lg font-medium hover:opacity-90 transition-opacity"
+                        className="flex items-center gap-2 px-4 py-2 min-h-[44px] sm:min-h-0 bg-gradient-to-r from-purple-500 to-pink-500 text-white rounded-lg font-medium hover:opacity-90 transition-opacity touch-manipulation shrink-0"
+                        initial={false}
+                        animate={
+                            saved && !reduceAnimations
+                                ? { scale: [1, 1.08, 1], transition: { duration: 0.3, ease: [0.4, 0, 0.2, 1] } }
+                                : { scale: 1 }
+                        }
+                        whileHover={reduceAnimations ? undefined : { scale: 1.02 }}
+                        whileTap={reduceAnimations ? undefined : tapScale}
+                        transition={springTransition}
                     >
-                        <Save className="w-4 h-4" />
+                        <Save className="w-4 h-4 shrink-0" aria-hidden />
                         {saved ? 'Saved!' : t('save')}
-                    </button>
+                    </motion.button>
                 </div>
             </header>
 
-            <PageTransition className="max-w-5xl mx-auto px-3 sm:px-4 py-4 sm:py-6 flex flex-col md:flex-row gap-4 sm:gap-6">
+            <div className="max-w-5xl mx-auto px-3 sm:px-4 py-4 sm:py-6 flex flex-col md:flex-row gap-4 sm:gap-6">
                 {/* Mobile Tab Bar - Enhanced */}
                 <div className="md:hidden flex gap-2 overflow-x-auto pb-2 -mx-3 sm:-mx-4 px-3 sm:px-4 scrollbar-hide">
                     {tabs.map((tab) => (
-                        <button
+                        <motion.button
                             key={tab.id}
                             onClick={() => setActiveTab(tab.id)}
                             className={`shrink-0 flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2.5 sm:py-2 rounded-full text-xs sm:text-sm font-medium transition-all min-h-[44px] ${activeTab === tab.id
@@ -171,61 +215,84 @@ export default function SettingsPage() {
                                 : 'bg-white/80 dark:bg-slate-900/60 text-gray-600 dark:text-slate-300 hover:bg-gray-100 dark:hover:bg-slate-800'
                                 }`}
                             aria-label={tab.label}
+                            whileTap={reduceAnimations ? undefined : tapScale}
+                            transition={springTransition}
                         >
                             <tab.icon className="w-4 h-4 shrink-0" />
                             <span>{tab.label}</span>
-                        </button>
+                        </motion.button>
                     ))}
                 </div>
 
                 {/* Desktop Sidebar */}
-                <div className="hidden md:block w-56 shrink-0">
-                    <nav className="bg-white/80 dark:bg-slate-900/60 backdrop-blur-sm rounded-xl shadow-sm p-2 sticky top-20">
+                <div className="hidden md:block w-48 lg:w-56 shrink-0">
+                    <motion.nav
+                        className="bg-white/80 dark:bg-slate-900/60 backdrop-blur-sm rounded-xl shadow-sm p-2 sticky top-20 safe-top"
+                        variants={reduceAnimations ? undefined : staggerListFast}
+                        initial="animate"
+                        animate="animate"
+                    >
                         {tabs.map((tab) => (
-                            <button
+                            <motion.button
                                 key={tab.id}
                                 onClick={() => setActiveTab(tab.id)}
-                                className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-left transition-all ${activeTab === tab.id
+                                className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-left transition-ui ${activeTab === tab.id
                                     ? 'bg-gradient-to-r from-purple-500 to-pink-500 text-white'
                                     : 'text-gray-600 dark:text-slate-300 hover:bg-gray-100 dark:hover:bg-slate-800'
                                     }`}
+                                variants={reduceAnimations ? undefined : listItemVariants}
+                                whileHover={reduceAnimations ? undefined : { scale: 1.02 }}
+                                whileTap={reduceAnimations ? undefined : tapScale}
+                                transition={springTransition}
                             >
                                 <tab.icon className="w-5 h-5" />
                                 <span className="font-medium">{tab.label}</span>
-                            </button>
+                            </motion.button>
                         ))}
-                    </nav>
+                    </motion.nav>
 
                     {/* Quick Actions */}
                     <div className="mt-4 bg-white/80 dark:bg-slate-900/60 backdrop-blur-sm rounded-xl shadow-sm p-4 space-y-2">
-                        <button
+                        <motion.button
                             onClick={handleExport}
                             className="w-full flex items-center gap-2 px-3 py-2 text-gray-600 dark:text-slate-300 hover:bg-gray-100 dark:hover:bg-slate-800 rounded-lg transition-colors text-sm"
+                            whileHover={reduceAnimations ? undefined : { x: 2 }}
+                            whileTap={reduceAnimations ? undefined : tapScale}
+                            transition={springTransition}
                         >
                             <Download className="w-4 h-4" />
                             Export Settings
-                        </button>
-                        <label className="w-full flex items-center gap-2 px-3 py-2 text-gray-600 dark:text-slate-300 hover:bg-gray-100 dark:hover:bg-slate-800 rounded-lg transition-colors text-sm cursor-pointer">
+                        </motion.button>
+                        <motion.label
+                            className="w-full flex items-center gap-2 px-3 py-2 text-gray-600 dark:text-slate-300 hover:bg-gray-100 dark:hover:bg-slate-800 rounded-lg transition-colors text-sm cursor-pointer"
+                            whileHover={reduceAnimations ? undefined : { x: 2 }}
+                            whileTap={reduceAnimations ? undefined : tapScale}
+                            transition={springTransition}
+                        >
                             <Upload className="w-4 h-4" />
                             Import Settings
                             <input type="file" accept=".json" onChange={handleImport} className="hidden" />
-                        </label>
-                        <button
+                        </motion.label>
+                        <motion.button
                             onClick={resetToDefaults}
-                            className="w-full flex items-center gap-2 px-3 py-2 text-red-500 hover:bg-red-50 rounded-lg transition-colors text-sm"
+                            className="w-full flex items-center gap-2 px-3 py-2 text-red-500 hover:bg-red-50 dark:hover:bg-red-950/30 rounded-lg transition-colors text-sm"
+                            whileHover={reduceAnimations ? undefined : { x: 2 }}
+                            whileTap={reduceAnimations ? undefined : tapScale}
+                            transition={springTransition}
                         >
                             <RotateCcw className="w-4 h-4" />
                             Reset to Defaults
-                        </button>
+                        </motion.button>
                     </div>
                 </div>
 
                 {/* Content */}
-                <div className="flex-1">
+                <main id="main-content" tabIndex={-1} className="flex-1 min-w-0">
                     <motion.div
                         key={activeTab}
-                        initial={{ opacity: 0, x: 10 }}
+                        initial={{ opacity: 0, x: 12 }}
                         animate={{ opacity: 1, x: 0 }}
+                        transition={TRANSITION_DEFAULT}
                         className="bg-white/80 dark:bg-slate-900/60 backdrop-blur-sm rounded-xl shadow-sm p-6 text-gray-800 dark:text-slate-100 dark:[&_label]:text-slate-200 dark:[&_p]:text-slate-300 dark:[&_span]:text-slate-200 dark:[&_h2]:text-slate-100 dark:[&_h3]:text-slate-100"
                     >
                         {/* Account Settings */}
@@ -272,7 +339,7 @@ export default function SettingsPage() {
                                     </div>
 
                                     <div>
-                                        <label className="block text-sm font-medium text-gray-700 mb-3">Notifications</label>
+                                        <label className="block text-sm font-medium text-gray-700 dark:text-slate-200 mb-3">Notifications</label>
                                         <div className="space-y-3">
                                             {[
                                                 { key: 'studyReminders', label: 'Study Reminders' },
@@ -280,7 +347,7 @@ export default function SettingsPage() {
                                                 { key: 'reviewReminders', label: 'Review Reminders' },
                                             ].map((item) => (
                                                 <label key={item.key} className="flex items-center justify-between">
-                                                    <span className="text-gray-600">{item.label}</span>
+                                                    <span className="text-gray-600 dark:text-slate-300">{item.label}</span>
                                                     <input
                                                         type="checkbox"
                                                         checked={settings.notifications[item.key as keyof typeof settings.notifications] as boolean}
@@ -293,19 +360,20 @@ export default function SettingsPage() {
                                     </div>
                                 </div>
 
-                                <div className="pt-6 border-t border-gray-100">
-                                    <button
-                                        onClick={() => {
-                                            logout();
+                                <div className="pt-6 border-t border-gray-100 dark:border-slate-700">
+                                    <AnimatedButton
+                                        variant="danger"
+                                        onClick={async () => {
+                                            await logout();
                                             navigate('/login');
                                         }}
-                                        className="w-full py-3 bg-red-50 text-red-600 rounded-lg font-medium hover:bg-red-100 transition-colors flex items-center justify-center gap-2"
+                                        className="w-full py-3 flex items-center justify-center gap-2 !bg-red-50 !text-red-600 hover:!bg-red-100 dark:!bg-red-950/30 dark:!text-red-300 dark:hover:!bg-red-900/40"
                                     >
-                                        <div className="w-5 h-5 flex items-center justify-center border-2 border-red-600 rounded-full">
-                                            <div className="w-2 h-0.5 bg-red-600"></div>
+                                        <div className="w-5 h-5 flex items-center justify-center border-2 border-red-600 dark:border-red-400 rounded-full">
+                                            <div className="w-2 h-0.5 bg-red-600 dark:bg-red-400"></div>
                                         </div>
                                         Sign Out
-                                    </button>
+                                    </AnimatedButton>
                                 </div>
                             </div>
                         )}
@@ -315,95 +383,120 @@ export default function SettingsPage() {
                             <div className="space-y-6">
                                 <h2 className="text-lg font-bold text-gray-800 dark:text-slate-100">Learning Preferences</h2>
 
-                                {/* Profession & Topic Settings */}
-                                <div className="bg-purple-50 rounded-lg p-4 space-y-4">
-                                    <h3 className="font-medium text-purple-800">Profession & Topics</h3>
-
-                                    <div>
-                                        <label className="block text-sm font-medium text-gray-700 mb-1">Profession</label>
-                                        <select
-                                            value={profile?.profession?.id || ''}
-                                            onChange={(e) => {
-                                                const prof = professions.find(p => p.id === e.target.value);
-                                                if (prof) updateProfile({ profession: prof, subProfession: null });
-                                            }}
-                                            className="w-full px-4 py-2 bg-white border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-400"
+                                {!profile ? (
+                                    <div className="text-center py-8 text-gray-500 dark:text-slate-400">
+                                        <p className="mb-4">Complete onboarding first to set your profession and learning preferences.</p>
+                                        <button
+                                            onClick={() => navigate('/onboarding')}
+                                            className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors"
                                         >
-                                            {professions.map(p => (
-                                                <option key={p.id} value={p.id}>{p.name}</option>
-                                            ))}
-                                        </select>
+                                            Go to Onboarding
+                                        </button>
                                     </div>
+                                ) : (
+                                    <div className="bg-purple-50 dark:bg-purple-900/20 rounded-lg p-4 space-y-4">
+                                        <h3 className="font-medium text-purple-800 dark:text-purple-200">Profession & Topics</h3>
 
-                                    {profile?.profession && (
                                         <div>
-                                            <label className="block text-sm font-medium text-gray-700 mb-1">Sub-Profession</label>
+                                            <label className="block text-sm font-medium text-gray-700 dark:text-slate-200 mb-1">Profession</label>
                                             <select
-                                                value={profile?.subProfession || ''}
-                                                onChange={(e) => updateProfile({ subProfession: e.target.value })}
-                                                className="w-full px-4 py-2 bg-white border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-400"
+                                                value={profile?.profession?.id || ''}
+                                                onChange={(e) => {
+                                                    const prof = professions.find(p => p.id === e.target.value);
+                                                    if (prof) updateProfile({ profession: prof, subProfession: null });
+                                                }}
+                                                className="w-full px-4 py-2 bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-400 dark:text-slate-100"
                                             >
-                                                <option value="">Select Specialization</option>
-                                                {profile.profession.subProfessions.map(sp => (
-                                                    <option key={sp.id} value={sp.id}>{sp.name}</option>
+                                                {professions.map(p => (
+                                                    <option key={p.id} value={p.id}>{p.name}</option>
                                                 ))}
                                             </select>
                                         </div>
-                                    )}
-                                    {profile?.subProfession && (
-                                        <div>
-                                            <label className="block text-sm font-medium text-gray-700 mb-1">Subject</label>
-                                            <select
-                                                value={profile?.subject || ''}
-                                                onChange={(e) => updateProfile({ subject: e.target.value })}
-                                                className="w-full px-4 py-2 bg-white border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-400"
-                                            >
-                                                <option value="">Select Subject</option>
-                                                {profile.profession?.subProfessions
-                                                    .find(sp => sp.id === profile.subProfession)
-                                                    ?.subjects.map(s => (
-                                                        <option key={s.id} value={s.id}>{s.name}</option>
-                                                    ))}
-                                            </select>
-                                        </div>
-                                    )}
 
-                                    {profile?.subject && (
-                                        <div>
-                                            <label className="block text-sm font-medium text-gray-700 mb-1">Current Topic</label>
-                                            <select
-                                                value={profile?.currentTopic || ''}
-                                                onChange={(e) => updateProfile({ currentTopic: e.target.value })}
-                                                className="w-full px-4 py-2 bg-white border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-400"
-                                            >
-                                                <option value="">Select Topic</option>
-                                                {profile.profession?.subProfessions
-                                                    .find(sp => sp.id === profile.subProfession)
-                                                    ?.subjects.find(s => s.id === profile.subject)
-                                                    ?.topics.map(t => (
-                                                        <option key={t.id} value={t.id}>{t.name}</option>
+                                        {profile?.profession && (
+                                            <div>
+                                                <label className="block text-sm font-medium text-gray-700 dark:text-slate-200 mb-1">Sub-Profession</label>
+                                                <select
+                                                    value={profile?.subProfession || ''}
+                                                    onChange={(e) => updateProfile({ subProfession: e.target.value })}
+                                                    className="w-full px-4 py-2 bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-400 dark:text-slate-100"
+                                                >
+                                                    <option value="">Select Specialization</option>
+                                                    {profile.profession.subProfessions.map(sp => (
+                                                        <option key={sp.id} value={sp.id}>{sp.name}</option>
                                                     ))}
-                                            </select>
-                                        </div>
-                                    )}
+                                                </select>
+                                            </div>
+                                        )}
+                                        {profile?.subProfession && (
+                                            <div>
+                                                <label className="block text-sm font-medium text-gray-700 dark:text-slate-200 mb-1">Subject</label>
+                                                <select
+                                                    value={profile?.subject || ''}
+                                                    onChange={(e) => updateProfile({ subject: e.target.value })}
+                                                    className="w-full px-4 py-2 bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-400 dark:text-slate-100"
+                                                >
+                                                    <option value="">Select Subject</option>
+                                                    {profile.profession?.subProfessions
+                                                        .find(sp => sp.id === profile.subProfession)
+                                                        ?.subjects.map(s => (
+                                                            <option key={s.id} value={s.id}>{s.name}</option>
+                                                        ))}
+                                                </select>
+                                            </div>
+                                        )}
 
-                                    <button className="w-full py-2 bg-purple-600 text-white rounded-lg font-medium hover:bg-purple-700 transition-colors">
-                                        Update Preferences
-                                    </button>
-                                </div>
+                                        {profile?.subject && (
+                                            <div>
+                                                <label className="block text-sm font-medium text-gray-700 dark:text-slate-200 mb-1">Current Topic</label>
+                                                <select
+                                                    value={profile?.currentTopic || ''}
+                                                    onChange={(e) => {
+                                                        const value = e.target.value;
+                                                        updateProfile({ currentTopic: value });
+                                                        if (value) {
+                                                            navigate(`/learn/${value}`);
+                                                        }
+                                                    }}
+                                                    className="w-full px-4 py-2 bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-400 dark:text-slate-100"
+                                                >
+                                                    <option value="">Select Topic</option>
+                                                    {profile.profession?.subProfessions
+                                                        .find(sp => sp.id === profile.subProfession)
+                                                        ?.subjects.find(s => s.id === profile.subject)
+                                                        ?.topics.map(t => (
+                                                            <option key={t.id} value={t.id}>{t.name}</option>
+                                                        ))}
+                                                </select>
+                                                <p className="text-xs text-gray-500 dark:text-slate-400 mt-1">
+                                                    Changing the topic will open that lesson immediately.
+                                                </p>
+                                            </div>
+                                        )}
+
+                                        <button className="w-full py-2 bg-purple-600 text-white rounded-lg font-medium hover:bg-purple-700 transition-colors">
+                                            Update Preferences
+                                        </button>
+                                    </div>
+                                )}
 
                                 <div>
-                                    <label className="block text-sm font-medium text-gray-700 mb-2">Quick Templates</label>
-                                    <div className="grid grid-cols-3 gap-2">
+                                    <label className="block text-sm font-medium text-gray-700 dark:text-slate-200 mb-2">Quick Templates</label>
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
                                         {templates.map((template) => (
-                                            <button
+                                            <motion.button
                                                 key={template.id}
                                                 onClick={() => applyTemplate(template.id)}
-                                                className="p-3 text-left border border-gray-200 rounded-lg hover:border-purple-300 hover:bg-purple-50 transition-all"
+                                                className="p-3 text-left border border-gray-200 dark:border-slate-600 rounded-lg hover:border-purple-300 dark:hover:border-purple-500 hover:bg-purple-50 dark:hover:bg-purple-900/30 transition-all"
+                                                variants={reduceAnimations ? undefined : cardHoverTap}
+                                                initial="rest"
+                                                whileHover={reduceAnimations ? undefined : 'hover'}
+                                                whileTap={reduceAnimations ? undefined : 'tap'}
+                                                transition={cardTransition}
                                             >
-                                                <p className="font-medium text-gray-800 text-sm">{template.name}</p>
-                                                <p className="text-xs text-gray-500 mt-1">{template.description}</p>
-                                            </button>
+                                                <p className="font-medium text-gray-800 dark:text-slate-100 text-sm">{template.name}</p>
+                                                <p className="text-xs text-gray-500 dark:text-slate-400 mt-1">{template.description}</p>
+                                            </motion.button>
                                         ))}
                                     </div>
                                 </div>
@@ -417,11 +510,11 @@ export default function SettingsPage() {
 
                                 <div className="grid gap-4">
                                     <div>
-                                        <label className="block text-sm font-medium text-gray-700 mb-1">Font Size</label>
+                                        <label className="block text-sm font-medium text-gray-700 dark:text-slate-200 mb-1">Font Size</label>
                                         <select
                                             value={settings.accessibility.fontSize}
                                             onChange={(e) => updateAccessibility({ fontSize: e.target.value as 'small' | 'medium' | 'large' | 'xlarge' })}
-                                            className="w-full px-4 py-2 bg-white border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-400"
+                                            className="w-full px-4 py-2 bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-400 dark:text-slate-100"
                                         >
                                             <option value="small">Small</option>
                                             <option value="medium">Medium</option>
@@ -437,7 +530,7 @@ export default function SettingsPage() {
                                             { key: 'textToSpeech', label: 'Text to Speech' },
                                         ].map((item) => (
                                             <label key={item.key} className="flex items-center justify-between">
-                                                <span className="text-gray-600">{item.label}</span>
+                                                <span className="text-gray-600 dark:text-slate-300">{item.label}</span>
                                                 <input
                                                     type="checkbox"
                                                     checked={settings.accessibility[item.key as keyof typeof settings.accessibility] as boolean}
@@ -451,7 +544,7 @@ export default function SettingsPage() {
                                     {settings.accessibility.textToSpeech && (
                                         <div className="space-y-4">
                                             <div>
-                                                <label className="block text-sm font-medium text-gray-700 mb-1">
+                                                <label className="block text-sm font-medium text-gray-700 dark:text-slate-200 mb-1">
                                                     Speech Speed: {settings.accessibility.ttsSpeed.toFixed(1)}x
                                                 </label>
                                                 <input
@@ -466,11 +559,11 @@ export default function SettingsPage() {
                                             </div>
 
                                             <div>
-                                                <label className="block text-sm font-medium text-gray-700 mb-1">Voice</label>
+                                                <label className="block text-sm font-medium text-gray-700 dark:text-slate-200 mb-1">Voice</label>
                                                 <select
                                                     value={settings.accessibility.ttsVoice}
                                                     onChange={(e) => updateAccessibility({ ttsVoice: e.target.value })}
-                                                    className="w-full px-4 py-2 bg-white border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-400"
+                                                    className="w-full px-4 py-2 bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-400 dark:text-slate-100"
                                                 >
                                                     <option value="">Auto-select Best Natural Voice</option>
                                                     {availableVoices.length > 0 ? (
@@ -488,7 +581,7 @@ export default function SettingsPage() {
                                                         <option value="">Loading voices...</option>
                                                     )}
                                                 </select>
-                                                <p className="text-xs text-gray-500 mt-1">
+                                                <p className="text-xs text-gray-500 dark:text-slate-400 mt-1">
                                                     {availableVoices.length > 0
                                                         ? `${availableVoices.length} voice(s) available. Premium voices (⭐) sound more natural.`
                                                         : 'Available voices depend on your browser and OS. Reload if voices don\'t appear.'}
@@ -502,29 +595,14 @@ export default function SettingsPage() {
                                                         return;
                                                     }
                                                     const testText = "Hello! This is how I sound. I'm designed to explain concepts in a natural, human-like way that makes learning easier and more engaging.";
-                                                    const utterance = new SpeechSynthesisUtterance(testText);
-
-                                                    // Use same settings as teaching page
-                                                    utterance.rate = Math.max(0.8, Math.min(1.2, settings.accessibility.ttsSpeed || 1.0));
-                                                    utterance.pitch = 0.95; // Slightly lower for more natural sound
-                                                    utterance.volume = 1.0;
-
-                                                    if (settings.accessibility.ttsVoice) {
-                                                        const voice = window.speechSynthesis.getVoices().find(v => v.name === settings.accessibility.ttsVoice);
-                                                        if (voice) utterance.voice = voice;
-                                                    } else {
-                                                        // Auto-pick the most natural human voice available
-                                                        const voices = window.speechSynthesis.getVoices();
-                                                        const autoVoice = pickBestHumanVoice(voices, {
-                                                            language: settings.language || 'en',
-                                                        });
-                                                        if (autoVoice) utterance.voice = autoVoice;
-                                                    }
-
-                                                    window.speechSynthesis.cancel();
-                                                    window.speechSynthesis.speak(utterance);
+                                                    narrateText(testText, {
+                                                        enabled: settings.accessibility.textToSpeech,
+                                                        rate: Math.max(0.8, Math.min(1.2, settings.accessibility.ttsSpeed || 1.0)),
+                                                        pitch: 0.95,
+                                                        volume: 1.0,
+                                                    });
                                                 }}
-                                                className="px-4 py-2 bg-purple-100 text-purple-700 rounded-lg text-sm font-medium hover:bg-purple-200 transition-colors flex items-center gap-2"
+                                                className="px-4 py-2 bg-purple-100 dark:bg-purple-900/40 text-purple-700 dark:text-purple-200 rounded-lg text-sm font-medium hover:bg-purple-200 dark:hover:bg-purple-800/50 transition-colors flex items-center gap-2"
                                             >
                                                 <Volume2 className="w-4 h-4" />
                                                 Test Voice
@@ -542,11 +620,11 @@ export default function SettingsPage() {
 
                                 <div className="grid gap-4">
                                     <div>
-                                        <label className="block text-sm font-medium text-gray-700 mb-1">Personality</label>
+                                        <label className="block text-sm font-medium text-gray-700 dark:text-slate-200 mb-1">Personality</label>
                                         <select
                                             value={settings.aiTutor.personality}
                                             onChange={(e) => updateAiTutor({ personality: e.target.value as 'encouraging' | 'direct' | 'humorous' | 'formal' })}
-                                            className="w-full px-4 py-2 bg-white border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-400"
+                                            className="w-full px-4 py-2 bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-400 dark:text-slate-100"
                                         >
                                             <option value="encouraging">Encouraging</option>
                                             <option value="direct">Direct</option>
@@ -556,11 +634,11 @@ export default function SettingsPage() {
                                     </div>
 
                                     <div>
-                                        <label className="block text-sm font-medium text-gray-700 mb-1">Response Style</label>
+                                        <label className="block text-sm font-medium text-gray-700 dark:text-slate-200 mb-1">Response Style</label>
                                         <select
                                             value={settings.aiTutor.responseStyle}
                                             onChange={(e) => updateAiTutor({ responseStyle: e.target.value as 'concise' | 'detailed' | 'interactive' | 'adaptive' })}
-                                            className="w-full px-4 py-2 bg-white border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-400"
+                                            className="w-full px-4 py-2 bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-400 dark:text-slate-100"
                                         >
                                             <option value="concise">Concise</option>
                                             <option value="detailed">Detailed</option>
@@ -569,13 +647,26 @@ export default function SettingsPage() {
                                         </select>
                                     </div>
 
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 dark:text-slate-200 mb-1">AI Model</label>
+                                        <select
+                                            value={settings.aiTutor.preferredAiModel ?? 'llama'}
+                                            onChange={(e) => updateAiTutor({ preferredAiModel: e.target.value as 'llama' | 'mistral' })}
+                                            className="w-full px-4 py-2 bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-400 dark:text-slate-100"
+                                        >
+                                            <option value="llama">LLaMA (fast)</option>
+                                            <option value="mistral">Mistral (detailed)</option>
+                                        </select>
+                                        <p className="text-xs text-gray-500 dark:text-slate-400 mt-1">Used for chat, doubt resolution, notes, mind maps, and flashcards.</p>
+                                    </div>
+
                                     <div className="space-y-3">
                                         {[
                                             { key: 'analogiesEnabled', label: 'Use Analogies' },
                                             { key: 'clinicalExamplesEnabled', label: 'Include Clinical Examples' },
                                         ].map((item) => (
                                             <label key={item.key} className="flex items-center justify-between">
-                                                <span className="text-gray-600">{item.label}</span>
+                                                <span className="text-gray-600 dark:text-slate-300">{item.label}</span>
                                                 <input
                                                     type="checkbox"
                                                     checked={settings.aiTutor[item.key as keyof typeof settings.aiTutor] as boolean}
@@ -599,10 +690,10 @@ export default function SettingsPage() {
                                         { key: 'analyticsEnabled', label: 'Enable Analytics', desc: 'Help us improve by sharing usage data' },
                                         { key: 'shareProgress', label: 'Share Progress', desc: 'Allow sharing your learning progress' },
                                     ].map((item) => (
-                                        <label key={item.key} className="flex items-start justify-between p-3 bg-gray-50 rounded-lg">
+                                        <label key={item.key} className="flex items-start justify-between p-3 bg-gray-50 dark:bg-slate-800 rounded-lg">
                                             <div>
-                                                <span className="font-medium text-gray-800">{item.label}</span>
-                                                <p className="text-sm text-gray-500">{item.desc}</p>
+                                                <span className="font-medium text-gray-800 dark:text-slate-100">{item.label}</span>
+                                                <p className="text-sm text-gray-500 dark:text-slate-400">{item.desc}</p>
                                             </div>
                                             <input
                                                 type="checkbox"
@@ -615,11 +706,11 @@ export default function SettingsPage() {
                                 </div>
 
                                 <div>
-                                    <label className="block text-sm font-medium text-gray-700 mb-1">Data Retention (months)</label>
+                                    <label className="block text-sm font-medium text-gray-700 dark:text-slate-200 mb-1">Data Retention (months)</label>
                                     <select
                                         value={settings.privacy.dataRetentionMonths}
                                         onChange={(e) => updatePrivacy({ dataRetentionMonths: parseInt(e.target.value) })}
-                                        className="w-full px-4 py-2 bg-white border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-400"
+                                        className="w-full px-4 py-2 bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-400 dark:text-slate-100"
                                     >
                                         <option value="6">6 months</option>
                                         <option value="12">12 months</option>
@@ -630,8 +721,8 @@ export default function SettingsPage() {
                             </div>
                         )}
                     </motion.div>
-                </div>
-            </PageTransition >
-        </div >
+                </main>
+            </div>
+        </div>
     );
 }

@@ -1,6 +1,9 @@
 import { useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { useShallow } from 'zustand/react/shallow';
 import { X, CheckCircle, AlertCircle, Info, AlertTriangle } from 'lucide-react';
+import { useSettingsStore } from '../../stores/settingsStore';
+import { TRANSITION_FAST, fadeScaleVariants } from '../../utils/animations';
 
 export type ToastType = 'success' | 'error' | 'info' | 'warning';
 
@@ -14,9 +17,10 @@ export interface Toast {
 interface ToastProps {
     toast: Toast;
     onClose: (id: string) => void;
+    reduceAnimations?: boolean;
 }
 
-function ToastItem({ toast, onClose }: ToastProps) {
+function ToastItem({ toast, onClose, reduceAnimations }: ToastProps) {
     useEffect(() => {
         if (toast.duration !== 0) {
             const timer = setTimeout(() => {
@@ -49,25 +53,39 @@ function ToastItem({ toast, onClose }: ToastProps) {
     };
 
     const Icon = icons[toast.type];
+    const noMotion = reduceAnimations;
 
     return (
         <motion.div
-            initial={{ opacity: 0, y: -20, scale: 0.95 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, scale: 0.95, transition: { duration: 0.2 } }}
+            layout={!noMotion}
+            initial={noMotion ? false : fadeScaleVariants.initial}
+            animate={noMotion ? { opacity: 1, scale: 1 } : fadeScaleVariants.animate}
+            exit={noMotion ? undefined : { ...fadeScaleVariants.exit, transition: TRANSITION_FAST }}
+            transition={noMotion ? { duration: 0 } : { duration: TRANSITION_FAST.duration, ease: TRANSITION_FAST.ease }}
             className={`flex items-start gap-3 p-4 rounded-lg border shadow-lg max-w-md ${colors[toast.type]}`}
             role="alert"
             aria-live="polite"
         >
-            <Icon className={`w-5 h-5 flex-shrink-0 mt-0.5 ${iconColors[toast.type]}`} />
+            <motion.span
+                initial={noMotion ? false : { scale: 0 }}
+                animate={{ scale: 1 }}
+                transition={noMotion ? { duration: 0 } : { type: 'spring', stiffness: 400, damping: 25, delay: 0.05 }}
+                className={`w-5 h-5 flex-shrink-0 mt-0.5 flex items-center justify-center ${iconColors[toast.type]}`}
+            >
+                <Icon className="w-5 h-5" />
+            </motion.span>
             <p className="flex-1 text-sm font-medium">{toast.message}</p>
-            <button
+            <motion.button
+                type="button"
                 onClick={() => onClose(toast.id)}
-                className="flex-shrink-0 text-gray-400 dark:text-slate-400 hover:text-gray-600 dark:hover:text-slate-200 transition-colors"
+                className="flex-shrink-0 text-gray-400 dark:text-slate-400 hover:text-gray-600 dark:hover:text-slate-200 transition-ui rounded p-0.5"
+                whileHover={noMotion ? undefined : { scale: 1.1 }}
+                whileTap={noMotion ? undefined : { scale: 0.95 }}
+                transition={{ duration: 0.15 }}
                 aria-label="Close notification"
             >
                 <X className="w-4 h-4" />
-            </button>
+            </motion.button>
         </motion.div>
     );
 }
@@ -78,17 +96,27 @@ interface ToastContainerProps {
 }
 
 export default function ToastContainer({ toasts, onClose }: ToastContainerProps) {
+    const reduceAnimations = useSettingsStore(useShallow((state) => state.settings.accessibility.reduceAnimations));
+    const noMotion = reduceAnimations;
     return (
         <div
-            className="fixed top-4 right-4 z-50 flex flex-col gap-2 pointer-events-none"
+            className="fixed top-4 left-4 right-4 sm:left-auto sm:right-4 z-50 flex flex-col gap-2 pointer-events-none safe-top"
             aria-live="assertive"
             aria-atomic="true"
         >
-            <AnimatePresence>
+            <AnimatePresence mode={noMotion ? 'sync' : 'popLayout'}>
                 {toasts.map((toast) => (
-                    <div key={toast.id} className="pointer-events-auto">
-                        <ToastItem toast={toast} onClose={onClose} />
-                    </div>
+                    <motion.div
+                        key={toast.id}
+                        layout={!noMotion}
+                        initial={noMotion ? false : { opacity: 0, y: -8 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={noMotion ? undefined : { opacity: 0, x: 24, transition: { duration: TRANSITION_FAST.duration } }}
+                        transition={noMotion ? { duration: 0 } : { duration: TRANSITION_FAST.duration, ease: TRANSITION_FAST.ease }}
+                        className="pointer-events-auto"
+                    >
+                        <ToastItem toast={toast} onClose={onClose} reduceAnimations={reduceAnimations} />
+                    </motion.div>
                 ))}
             </AnimatePresence>
         </div>

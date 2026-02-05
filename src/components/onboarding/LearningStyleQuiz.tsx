@@ -103,21 +103,21 @@ export default function LearningStyleQuiz({ onComplete }: Props) {
                 animate={{ opacity: 1, scale: 1 }}
                 className="max-w-md mx-auto text-center space-y-8"
             >
-                <div className="bg-white p-8 rounded-2xl shadow-xl space-y-6">
-                    <div className="w-16 h-16 bg-purple-100 rounded-full flex items-center justify-center mx-auto">
-                        <Brain className="w-8 h-8 text-purple-600" />
+                <div className="bg-white dark:bg-slate-800 p-8 rounded-2xl shadow-xl space-y-6">
+                    <div className="w-16 h-16 bg-purple-100 dark:bg-purple-900/30 rounded-full flex items-center justify-center mx-auto">
+                        <Brain className="w-8 h-8 text-purple-600 dark:text-purple-400" />
                     </div>
 
-                    <h2 className="text-2xl font-bold text-gray-800">Assessment Complete!</h2>
-                    <p className="text-gray-600">Here is your learning profile breakdown:</p>
+                    <h2 className="text-2xl font-bold text-gray-800 dark:text-slate-100">Assessment Complete!</h2>
+                    <p className="text-gray-600 dark:text-slate-400">Here is your learning profile breakdown:</p>
 
                     <div className="space-y-4">
                         <div className="space-y-2">
-                            <div className="flex justify-between text-sm font-medium">
+                            <div className="flex justify-between text-sm font-medium text-gray-700 dark:text-slate-200">
                                 <span className="flex items-center gap-2"><Eye className="w-4 h-4" /> Visual</span>
                                 <span>{Math.round((scores.visual / questions.length) * 100)}%</span>
                             </div>
-                            <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
+                            <div className="h-2 bg-gray-100 dark:bg-slate-700 rounded-full overflow-hidden">
                                 <motion.div
                                     initial={{ width: 0 }}
                                     animate={{ width: `${(scores.visual / questions.length) * 100}%` }}
@@ -127,11 +127,11 @@ export default function LearningStyleQuiz({ onComplete }: Props) {
                         </div>
 
                         <div className="space-y-2">
-                            <div className="flex justify-between text-sm font-medium">
+                            <div className="flex justify-between text-sm font-medium text-gray-700 dark:text-slate-200">
                                 <span className="flex items-center gap-2"><Ear className="w-4 h-4" /> Auditory</span>
                                 <span>{Math.round((scores.auditory / questions.length) * 100)}%</span>
                             </div>
-                            <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
+                            <div className="h-2 bg-gray-100 dark:bg-slate-700 rounded-full overflow-hidden">
                                 <motion.div
                                     initial={{ width: 0 }}
                                     animate={{ width: `${(scores.auditory / questions.length) * 100}%` }}
@@ -141,11 +141,11 @@ export default function LearningStyleQuiz({ onComplete }: Props) {
                         </div>
 
                         <div className="space-y-2">
-                            <div className="flex justify-between text-sm font-medium">
+                            <div className="flex justify-between text-sm font-medium text-gray-700 dark:text-slate-200">
                                 <span className="flex items-center gap-2"><Hand className="w-4 h-4" /> Kinesthetic</span>
                                 <span>{Math.round((scores.kinesthetic / questions.length) * 100)}%</span>
                             </div>
-                            <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
+                            <div className="h-2 bg-gray-100 dark:bg-slate-700 rounded-full overflow-hidden">
                                 <motion.div
                                     initial={{ width: 0 }}
                                     animate={{ width: `${(scores.kinesthetic / questions.length) * 100}%` }}
@@ -159,7 +159,7 @@ export default function LearningStyleQuiz({ onComplete }: Props) {
                         onClick={onComplete}
                         className="w-full py-3 bg-gradient-to-r from-purple-600 to-indigo-600 text-white rounded-xl font-bold hover:shadow-lg hover:scale-[1.02] transition-all flex items-center justify-center gap-2"
                     >
-                        Go to Dashboard
+                        Continue Learning
                         <ArrowRight className="w-4 h-4" />
                     </button>
                 </div>
@@ -172,8 +172,8 @@ export default function LearningStyleQuiz({ onComplete }: Props) {
     return (
         <div className="max-w-2xl mx-auto">
             <div className="mb-8 text-center">
-                <span className="text-sm font-bold text-purple-600 tracking-wider uppercase">Question {currentQuestion + 1} of {questions.length}</span>
-                <div className="h-1 w-full bg-gray-100 rounded-full mt-4 overflow-hidden">
+                <span className="text-sm font-bold text-purple-600 dark:text-purple-400 tracking-wider uppercase">Question {currentQuestion + 1} of {questions.length}</span>
+                <div className="h-1 w-full bg-gray-100 dark:bg-slate-700 rounded-full mt-4 overflow-hidden">
                     <motion.div
                         className="h-full bg-purple-600"
                         initial={{ width: `${(currentQuestion / questions.length) * 100}%` }}
@@ -190,7 +190,7 @@ export default function LearningStyleQuiz({ onComplete }: Props) {
                     exit={{ x: -20, opacity: 0 }}
                     className="space-y-8"
                 >
-                    <h2 className="text-2xl font-bold text-gray-800 text-center leading-relaxed">
+                    <h2 className="text-2xl font-bold text-gray-800 dark:text-slate-100 text-center leading-relaxed">
                         {question.text}
                     </h2>
 
@@ -199,12 +199,12 @@ export default function LearningStyleQuiz({ onComplete }: Props) {
                             <button
                                 key={idx}
                                 onClick={() => handleAnswer(option.type)}
-                                className="group p-4 bg-white border-2 border-transparent hover:border-purple-500 rounded-xl shadow-sm hover:shadow-md transition-all text-left flex items-center gap-4"
+                                className="group p-4 bg-white dark:bg-slate-800 border-2 border-transparent hover:border-purple-500 dark:hover:border-purple-400 rounded-xl shadow-sm hover:shadow-md transition-all text-left flex items-center gap-4"
                             >
-                                <div className="w-12 h-12 bg-gray-50 group-hover:bg-purple-50 rounded-lg flex items-center justify-center transition-colors">
-                                    <option.icon className="w-6 h-6 text-gray-600 group-hover:text-purple-600" />
+                                <div className="w-12 h-12 bg-gray-50 dark:bg-slate-700 group-hover:bg-purple-50 dark:group-hover:bg-purple-900/30 rounded-lg flex items-center justify-center transition-colors">
+                                    <option.icon className="w-6 h-6 text-gray-600 dark:text-slate-300 group-hover:text-purple-600 dark:group-hover:text-purple-400" />
                                 </div>
-                                <span className="font-medium text-gray-700 group-hover:text-gray-900 text-lg">
+                                <span className="font-medium text-gray-700 dark:text-slate-200 group-hover:text-gray-900 dark:group-hover:text-white text-lg">
                                     {option.text}
                                 </span>
                             </button>

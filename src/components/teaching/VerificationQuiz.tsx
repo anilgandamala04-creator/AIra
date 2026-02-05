@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import type { QuizQuestion } from '../../types';
 import { Check, X, HelpCircle, Award } from 'lucide-react';
+import { fadeScaleVariants, TRANSITION_DEFAULT, tapScale } from '../../utils/animations';
 
 interface VerificationQuizProps {
     quiz: QuizQuestion;
@@ -48,22 +49,24 @@ export default function VerificationQuiz({ quiz, onComplete, onSkip }: Verificat
 
     return (
         <motion.div
-            initial={{ opacity: 0, scale: 0.95 }}
-            animate={{ opacity: 1, scale: 1 }}
-            exit={{ opacity: 0, scale: 0.95 }}
-            className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
+            initial={fadeScaleVariants.initial}
+            animate={fadeScaleVariants.animate}
+            exit={fadeScaleVariants.exit}
+            transition={TRANSITION_DEFAULT}
+            className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-3 sm:p-4 safe-top safe-bottom backdrop-blur-sm overflow-y-auto"
             onClick={(e) => e.target === e.currentTarget && onSkip()}
         >
             <motion.div
-                className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl max-w-lg w-full overflow-hidden"
-                initial={{ y: 20 }}
-                animate={{ y: 0 }}
+                className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl w-full max-w-[calc(100vw-1.5rem)] sm:max-w-lg overflow-hidden my-auto"
+                initial={{ opacity: 0, y: 16 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ ...TRANSITION_DEFAULT, delay: 0.04 }}
             >
                 {/* Header */}
-                <div className="bg-gradient-to-r from-purple-500 to-pink-500 text-white p-4">
-                    <div className="flex items-center gap-2">
-                        <HelpCircle className="w-5 h-5" />
-                        <h3 className="font-bold">Quick Check</h3>
+                <div className="bg-gradient-to-r from-purple-500 to-pink-500 text-white p-3 sm:p-4 shrink-0">
+                    <div className="flex items-center gap-2 min-w-0">
+                        <HelpCircle className="w-5 h-5 shrink-0" />
+                        <h3 className="font-bold truncate">Quick Check</h3>
                     </div>
                     <p className="text-sm text-purple-200 mt-1">
                         Let's verify your understanding
@@ -71,7 +74,7 @@ export default function VerificationQuiz({ quiz, onComplete, onSkip }: Verificat
                 </div>
 
                 {/* Question */}
-                <div className="p-6">
+                <div className="p-4 sm:p-6 overflow-y-auto max-h-[60vh] sm:max-h-none">
                     <p className="text-lg font-medium text-gray-800 dark:text-slate-100 mb-6">
                         {quiz.question}
                     </p>
@@ -100,9 +103,10 @@ export default function VerificationQuiz({ quiz, onComplete, onSkip }: Verificat
                                         key={index}
                                         onClick={() => handleAnswer(index)}
                                         disabled={showResult}
-                                        className={`w-full p-4 rounded-xl border-2 text-left transition-all flex items-center gap-3 ${buttonClass}`}
-                                        whileHover={!showResult ? { scale: 1.01 } : {}}
-                                        whileTap={!showResult ? { scale: 0.99 } : {}}
+                                        className={`w-full p-4 rounded-xl border-2 text-left transition-colors duration-200 flex items-center gap-3 ${buttonClass}`}
+                                        whileHover={!showResult ? { scale: 1.01 } : undefined}
+                                        whileTap={!showResult ? tapScale : undefined}
+                                        transition={TRANSITION_DEFAULT}
                                     >
                                         <span className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium ${showResult && isCorrectAnswer
                                                 ? 'bg-green-500 text-white'

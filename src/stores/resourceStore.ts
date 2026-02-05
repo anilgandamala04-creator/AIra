@@ -1,24 +1,127 @@
 import { create } from 'zustand';
-import type { GeneratedNote, MindMap, MindMapNode, Flashcard } from '../types';
+import type { GeneratedNote, MindMap, MindMapNode, Flashcard, NoteSection } from '../types';
 import { toast } from './toastStore';
+import { generateContent } from '../services/aiApi';
+import type { AiModelType } from '../services/aiApi';
+import { useSettingsStore } from './settingsStore';
+import { useAuthStore } from './authStore';
+import { useUserStore } from './userStore';
+import { useTeachingStore } from './teachingStore';
+import { saveNote, saveFlashcards, saveMindMap } from '../services/backendService';
+import { realTimeEvents, EVENTS } from '../utils/realTimeSync';
+
+/**
+ * Get current domain context for resource generation
+ * Ensures all generated resources stay within the user's professional domain
+ */
+function getDomainContextForResources(): {
+    professionId?: string;
+    professionName?: string;
+    subProfessionName?: string;
+} {
+    const userState = useUserStore.getState();
+    const teachingState = useTeachingStore.getState();
+    const session = teachingState.currentSession;
+
+    // Prefer session context (it has the most specific domain info)
+    if (session?.professionName) {
+        return {
+            professionId: session.professionId,
+            professionName: session.professionName,
+            subProfessionName: session.subProfessionName,
+        };
+    }
+
+    // Fall back to user profile
+    return {
+        professionId: userState.selectedProfession?.id || userState.profile?.profession?.id,
+        professionName: userState.selectedProfession?.name || userState.profile?.profession?.name,
+        subProfessionName: userState.selectedSubProfession
+            ? userState.selectedProfession?.subProfessions?.find(sp => sp.id === userState.selectedSubProfession)?.name
+            : undefined,
+    };
+}
+
+/**
+ * Build domain constraint for prompts
+ */
+function buildDomainConstraint(): string {
+    const { professionName, subProfessionName } = getDomainContextForResources();
+
+    if (!professionName) return '';
+
+    const domainPath = subProfessionName
+        ? `${professionName} (${subProfessionName})`
+        : professionName;
+
+    return `IMPORTANT DOMAIN CONSTRAINT: All content MUST be relevant to ${domainPath}. Use only ${professionName}-appropriate terminology, examples, and explanations. Do NOT include content from other professional domains.\n\n`;
+}
+
+// Helper to sync to Firestore if user is logged in (not guest)
+async function syncNoteToBackend(note: GeneratedNote): Promise<void> {
+    const { user, isGuest } = useAuthStore.getState();
+    if (user?.id && !isGuest) {
+        try {
+            await saveNote(user.id, note);
+        } catch (e) {
+            console.error('Failed to sync note to backend:', e);
+        }
+    }
+}
+
+async function syncFlashcardsToBackend(cards: Flashcard[]): Promise<void> {
+    const { user, isGuest } = useAuthStore.getState();
+    if (user?.id && !isGuest) {
+        try {
+            await saveFlashcards(user.id, cards);
+        } catch (e) {
+            console.error('Failed to sync flashcards to backend:', e);
+        }
+    }
+}
+
+async function syncMindMapToBackend(mindMap: MindMap): Promise<void> {
+    const { user, isGuest } = useAuthStore.getState();
+    if (user?.id && !isGuest) {
+        try {
+            await saveMindMap(user.id, mindMap);
+        } catch (e) {
+            console.error('Failed to sync mind map to backend:', e);
+        }
+    }
+}
+
+// Parse AI markdown (## Section Title\n... ) into NoteSection[]
+function parseNoteSectionsFromMarkdown(text: string): NoteSection[] {
+    const blocks = text.split(/\n##\s+/).filter(B => B.trim());
+    if (blocks.length === 0) return [];
+    const sections: NoteSection[] = [];
+    for (const block of blocks) {
+        const firstLine = block.indexOf('\n');
+        const heading = firstLine === -1 ? block.trim() : block.slice(0, firstLine).trim();
+        const content = firstLine === -1 ? '' : block.slice(firstLine + 1).trim();
+        if (heading) sections.push({ heading, content, highlights: [] });
+    }
+    return sections;
+}
 
 // Helper function to extract topic name from content
 function extractTopicNameFromContent(content?: string[]): string | undefined {
     if (!content || content.length === 0) return undefined;
-    
+
     // Try to find topic name in first few sentences
     const firstContent = content[0] || '';
     const titleMatch = firstContent.match(/(?:Welcome to|Introduction to|Overview of)\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)/i);
     if (titleMatch) {
         return titleMatch[1];
     }
-    
+
     // Try to find capitalized phrases that might be topic names
     const capitalizedMatch = firstContent.match(/\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+){0,3})\b/);
     if (capitalizedMatch) {
         return capitalizedMatch[1];
     }
-    
+
     return undefined;
 }
 
@@ -54,10 +157,10 @@ const generateMockNotes = (sessionId: string, topicName: string, content: string
     const sentences = fullContent.split(/[.!?]+/).filter(s => s.trim().length > 20);
     const keyConcepts = extractKeyConcepts(fullContent, topicName);
     const mainPoints = extractMainPoints(fullContent, sentences);
-    
+
     // Generate comprehensive sections based on content
     const sections = generateNoteSections(topicName, fullContent, keyConcepts, mainPoints);
-    
+
     return {
         id: `note_${Date.now()}`,
         sessionId,
@@ -75,15 +178,15 @@ const generateMockNotes = (sessionId: string, topicName: string, content: string
 function extractKeyConcepts(content: string, topicName: string): string[] {
     const concepts: string[] = [];
     const topicWords = topicName.toLowerCase().split(/\s+/);
-    
+
     // Extract important terms (capitalized words, technical terms)
     const words = content.match(/\b[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*\b/g) || [];
-    const uniqueWords = [...new Set(words)].filter(w => 
-        w.length > 3 && 
+    const uniqueWords = [...new Set(words)].filter(w =>
+        w.length > 3 &&
         !topicWords.some(tw => w.toLowerCase().includes(tw)) &&
         !['The', 'This', 'That', 'These', 'Those', 'What', 'When', 'Where', 'How', 'Why'].includes(w)
     );
-    
+
     concepts.push(...uniqueWords.slice(0, 8));
     return concepts;
 }
@@ -95,19 +198,19 @@ function extractMainPoints(_content: string, sentences: string[]): string[] {
     const mainPoints = sentences
         .filter(s => {
             const lower = s.toLowerCase();
-            return keyIndicators.some(indicator => lower.includes(indicator)) || 
-                   s.length > 50 && s.length < 200; // Medium-length sentences often contain main points
+            return keyIndicators.some(indicator => lower.includes(indicator)) ||
+                s.length > 50 && s.length < 200; // Medium-length sentences often contain main points
         })
         .slice(0, 10)
         .map(s => s.trim());
-    
+
     return mainPoints;
 }
 
 // Generate comprehensive note sections
 function generateNoteSections(topicName: string, _content: string, keyConcepts: string[], mainPoints: string[]): GeneratedNote['sections'] {
     const sections: GeneratedNote['sections'] = [];
-    
+
     // Section 1: Introduction & Overview
     sections.push({
         heading: 'Introduction & Overview',
@@ -118,7 +221,7 @@ function generateNoteSections(topicName: string, _content: string, keyConcepts: 
             'Practical applications'
         ],
     });
-    
+
     // Section 2: Key Concepts
     if (keyConcepts.length > 0) {
         sections.push({
@@ -127,7 +230,7 @@ function generateNoteSections(topicName: string, _content: string, keyConcepts: 
             highlights: keyConcepts.slice(0, 5).map(c => `${c}: Essential concept`),
         });
     }
-    
+
     // Section 3: Detailed Explanation
     if (mainPoints.length > 2) {
         sections.push({
@@ -140,7 +243,7 @@ function generateNoteSections(topicName: string, _content: string, keyConcepts: 
             ],
         });
     }
-    
+
     // Section 4: Applications & Examples
     sections.push({
         heading: 'Applications & Real-World Examples',
@@ -151,7 +254,7 @@ function generateNoteSections(topicName: string, _content: string, keyConcepts: 
             'Practical implementation'
         ],
     });
-    
+
     // Section 5: Important Takeaways
     sections.push({
         heading: 'Key Takeaways & Summary',
@@ -162,7 +265,7 @@ function generateNoteSections(topicName: string, _content: string, keyConcepts: 
             'Apply knowledge actively'
         ],
     });
-    
+
     return sections;
 }
 
@@ -174,23 +277,52 @@ function calculateQualityScore(sections: GeneratedNote['sections'], content: str
     const length = content.trim().length;
     if (length >= 500) score += 8;
     if (length >= 1200) score += 7;
-    
+
     // Add points for number of sections
     if (sections.length >= 4) score += 5;
     if (sections.length >= 5) score += 5;
-    
+
     // Add points for highlights
     const totalHighlights = sections.reduce((sum, s) => sum + s.highlights.length, 0);
     if (totalHighlights >= 10) score += 5;
-    
+
     return Math.min(100, score);
 }
 
 // Enhanced mind map generation - topic-specific and comprehensive
+// Build MindMap from AI JSON: { centralTopic, children: [{ label, children?: [] }] }
+function buildMindMapFromAi(sessionId: string, topicName: string, parsed: { centralTopic?: string; children?: Array<{ label?: string; children?: Array<{ label?: string }> }> }): MindMap {
+    const central = parsed.centralTopic ?? topicName;
+    const colors = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899'];
+    let idx = 0;
+    const toNode = (label: string, depth: number): MindMapNode => ({
+        id: `node_${Date.now()}_${idx++}`,
+        label,
+        type: depth === 0 ? 'central' : (depth === 1 ? 'category' : 'concept'),
+        color: colors[depth % colors.length],
+        children: [],
+    });
+    const root = toNode(central, 0);
+    const rawChildren = parsed.children ?? [];
+    root.children = rawChildren.slice(0, 8).map((c) => {
+        const node = toNode(c.label ?? 'Concept', 1);
+        node.children = (c.children ?? []).slice(0, 4).map((cc) => toNode(cc.label ?? 'Detail', 2));
+        return node;
+    });
+    return {
+        id: `mindmap_${Date.now()}`,
+        sessionId,
+        topicName,
+        centralTopic: central,
+        nodes: [root],
+        createdAt: new Date().toISOString(),
+    };
+}
+
 const generateMockMindMap = (sessionId: string, topicName: string, concepts?: string[]): MindMap => {
     // Generate topic-specific categories and concepts
     const categories = generateTopicCategories(topicName, concepts);
-    
+
     const nodes: MindMapNode[] = [
         {
             id: 'central',
@@ -225,10 +357,10 @@ const generateMockMindMap = (sessionId: string, topicName: string, concepts?: st
 };
 
 // Generate topic-specific categories
-function generateTopicCategories(topicName: string, concepts?: string[]): Array<{name: string, color: string, concepts: Array<{label: string, description: string, color: string}>}> {
+function generateTopicCategories(topicName: string, concepts?: string[]): Array<{ name: string, color: string, concepts: Array<{ label: string, description: string, color: string }> }> {
     const lowerTopic = topicName.toLowerCase();
-    const categories: Array<{name: string, color: string, concepts: Array<{label: string, description: string, color: string}>}> = [];
-    
+    const categories: Array<{ name: string, color: string, concepts: Array<{ label: string, description: string, color: string }> }> = [];
+
     // Determine topic domain and generate appropriate categories
     if (lowerTopic.includes('ecg') || lowerTopic.includes('heart') || lowerTopic.includes('cardiac')) {
         categories.push(
@@ -352,7 +484,7 @@ function generateTopicCategories(topicName: string, concepts?: string[]): Array<
             }
         );
     }
-    
+
     // If concepts provided, enhance with them
     if (concepts && concepts.length > 0) {
         const firstCategory = categories[0];
@@ -364,7 +496,7 @@ function generateTopicCategories(topicName: string, concepts?: string[]): Array<
             });
         }
     }
-    
+
     return categories;
 }
 
@@ -372,7 +504,7 @@ function generateTopicCategories(topicName: string, concepts?: string[]): Array<
 const generateMockFlashcards = (sessionId: string, topicName?: string, content?: string[]): Flashcard[] => {
     const cards: Flashcard[] = [];
     const baseTime = Date.now();
-    
+
     // Generate topic-specific flashcards
     if (topicName) {
         const topicCards = generateTopicSpecificFlashcards(sessionId, topicName, content, baseTime);
@@ -382,7 +514,7 @@ const generateMockFlashcards = (sessionId: string, topicName?: string, content?:
         const genericCards = generateGenericFlashcards(sessionId, baseTime);
         cards.push(...genericCards);
     }
-    
+
     return cards;
 };
 
@@ -390,10 +522,10 @@ const generateMockFlashcards = (sessionId: string, topicName?: string, content?:
 function generateTopicSpecificFlashcards(sessionId: string, topicName: string, content: string[] | undefined, baseTime: number): Flashcard[] {
     const cards: Flashcard[] = [];
     const lowerTopic = topicName.toLowerCase();
-    
+
     // Extract key concepts from content if available
     const keyConcepts = content ? extractFlashcardConcepts(content) : [];
-    
+
     // Generate flashcards based on topic domain
     if (lowerTopic.includes('ecg') || lowerTopic.includes('heart') || lowerTopic.includes('cardiac')) {
         cards.push(
@@ -444,7 +576,7 @@ function generateTopicSpecificFlashcards(sessionId: string, topicName: string, c
             );
         }
     }
-    
+
     return cards;
 }
 
@@ -488,11 +620,11 @@ function createFlashcard(
 function extractFlashcardConcepts(content: string[]): string[] {
     const concepts: string[] = [];
     const fullText = content.join(' ');
-    
+
     // Extract capitalized terms (likely concepts)
     const matches = fullText.match(/\b[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*\b/g) || [];
     const unique = [...new Set(matches)].filter(c => c.length > 3);
-    
+
     concepts.push(...unique.slice(0, 10));
     return concepts;
 }
@@ -522,30 +654,87 @@ export const useResourceStore = create<ResourceStore>((set, get) => ({
                 throw new Error('Invalid input parameters for note generation');
             }
 
-            // Simulate API delay
-            await new Promise(resolve => setTimeout(resolve, 2000));
+            const model: AiModelType = useSettingsStore.getState().settings.aiTutor?.preferredAiModel ?? 'llama';
+            const fullContent = content.join('\n\n');
+            const domainConstraint = buildDomainConstraint();
+            const { professionName } = getDomainContextForResources();
+            const domainContext = professionName ? ` for ${professionName} students` : '';
+            const prompt = `${domainConstraint}You are an expert tutor. Generate comprehensive study notes${domainContext} for the topic "${topicName}". Base your notes on this content:\n\n${fullContent.slice(0, 4000)}\n\nOutput clear sections using markdown: ## Section Title followed by paragraph text. Use 3-5 sections. ${professionName ? `Ensure all terminology and examples are appropriate for ${professionName} professionals.` : ''} No code blocks or extra formatting.`;
+            const { content: aiText } = await generateContent(prompt, model);
+            const sections = parseNoteSectionsFromMarkdown(aiText);
+            const note: GeneratedNote = {
+                id: `note_${Date.now()}`,
+                sessionId,
+                topicName,
+                title: `${topicName} - Study Notes`,
+                content: fullContent,
+                sections: sections.length > 0 ? sections : [{ heading: 'Summary', content: aiText.slice(0, 2000), highlights: [] }],
+                userDoubts: [],
+                createdAt: new Date().toISOString(),
+                qualityScore: Math.min(100, 60 + sections.length * 8),
+            };
 
-            const note = generateMockNotes(sessionId, topicName, content);
-
-            // Double-check state hasn't changed during async operation
             const stateAfterDelay = get();
-            if (!stateAfterDelay.isGeneratingNotes) {
-                // Generation was cancelled
-                throw new Error('Notes generation was cancelled');
-            }
+            if (!stateAfterDelay.isGeneratingNotes) throw new Error('Notes generation was cancelled');
 
+            // Update state immediately for instant UI updates (optimistic update)
             set((state) => ({
                 notes: [...state.notes, note],
                 isGeneratingNotes: false,
             }));
-
+            // Emit real-time event immediately for instant UI updates across all components
+            realTimeEvents.emit(EVENTS.NOTES_GENERATED, note);
+            // Sync to Database in background (non-blocking)
+            syncNoteToBackend(note).catch(e => {
+                console.error('Failed to sync note to backend:', e);
+                // Note: State is already updated, so UI shows the note even if sync fails
+            });
             toast.success('Notes generated successfully');
             return note;
         } catch (error) {
+            // Log the error for debugging
+            const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+            const isNetworkError = errorMessage.includes('Network') ||
+                errorMessage.includes('backend') ||
+                errorMessage.includes('timeout') ||
+                errorMessage.includes('Failed to fetch');
+
             console.error('Failed to generate notes:', error);
-            set({ isGeneratingNotes: false });
-            toast.error('Failed to generate notes. Please try again.');
-            throw error;
+
+            // Only use fallback for network/AI service errors, not for validation errors
+            if (isNetworkError) {
+                try {
+                    const note = generateMockNotes(sessionId, topicName, content);
+                    const stateAfterDelay = get();
+                    if (!stateAfterDelay.isGeneratingNotes) throw new Error('Notes generation was cancelled');
+                    // Update state immediately for instant UI updates (optimistic update)
+                    set((state) => ({
+                        notes: [...state.notes, note],
+                        isGeneratingNotes: false,
+                    }));
+                    // Emit real-time event immediately for instant UI updates across all components
+                    realTimeEvents.emit(EVENTS.NOTES_GENERATED, note);
+                    // Sync to Database in background (non-blocking)
+                    syncNoteToBackend(note).catch(e => {
+                        console.error('Failed to sync note to backend:', e);
+                    });
+                    toast.success('Notes generated successfully');
+                    return note;
+                } catch (fallbackError) {
+                    console.error('Failed to generate fallback notes:', fallbackError);
+                    set({ isGeneratingNotes: false });
+                    const userMessage = isNetworkError
+                        ? 'Unable to connect to AI service. Please check your connection and try again.'
+                        : 'Failed to generate notes. Please try again.';
+                    toast.error(userMessage);
+                    throw fallbackError;
+                }
+            } else {
+                // For validation or other non-network errors, don't use fallback
+                set({ isGeneratingNotes: false });
+                toast.error(errorMessage || 'Failed to generate notes. Please try again.');
+                throw error;
+            }
         }
     },
 
@@ -560,35 +749,84 @@ export const useResourceStore = create<ResourceStore>((set, get) => ({
         set({ isGeneratingMindMap: true });
 
         try {
-            // Validate inputs
             if (!sessionId || !topicName) {
                 throw new Error('Invalid input parameters for mind map generation');
             }
 
-            await new Promise(resolve => setTimeout(resolve, 2500));
+            const model: AiModelType = useSettingsStore.getState().settings.aiTutor?.preferredAiModel ?? 'llama';
+            const safeConcepts = Array.isArray(concepts) ? concepts : [];
+            const conceptsStr = safeConcepts.slice(0, 15).join(', ');
+            const domainConstraint = buildDomainConstraint();
+            const { professionName } = getDomainContextForResources();
+            const domainContext = professionName ? ` (${professionName} domain)` : '';
+            const prompt = `${domainConstraint}You are an expert tutor. Create a mind map for topic "${topicName}"${domainContext} with these concepts: ${conceptsStr}. ${professionName ? `All concepts must be relevant to ${professionName}. ` : ''}Reply with only valid JSON: { "centralTopic": "string", "children": [ { "label": "string", "children": [] } ] }. Use 4-8 top-level children; nested children optional. No markdown or explanation.`;
+            const { content: aiText } = await generateContent(prompt, model);
+            const jsonMatch = aiText.match(/\{[\s\S]*\}/);
+            const parsed = jsonMatch ? JSON.parse(jsonMatch[0]) : null;
+            const mindMap = parsed ? buildMindMapFromAi(sessionId, topicName, parsed) : null;
 
-            // Double-check state hasn't changed during async operation
-            const stateAfterDelay = get();
-            if (!stateAfterDelay.isGeneratingMindMap) {
-                // Generation was cancelled
-                throw new Error('Mind map generation was cancelled');
+            if (mindMap) {
+                const stateAfterDelay = get();
+                if (!stateAfterDelay.isGeneratingMindMap) throw new Error('Mind map generation was cancelled');
+                // Update state immediately for instant UI updates (optimistic update)
+                set((state) => ({
+                    mindMaps: [...state.mindMaps, mindMap],
+                    isGeneratingMindMap: false,
+                }));
+                // Emit real-time event immediately for instant UI updates across all components
+                realTimeEvents.emit(EVENTS.MINDMAP_GENERATED, mindMap);
+                // Sync to Database in background (non-blocking)
+                syncMindMapToBackend(mindMap).catch(e => {
+                    console.error('Failed to sync mind map to backend:', e);
+                });
+                toast.success('Mind map generated successfully');
+                return mindMap;
             }
-
-            // Pass concepts to generate topic-specific mind map
-            const mindMap = generateMockMindMap(sessionId, topicName, concepts);
-
-            set((state) => ({
-                mindMaps: [...state.mindMaps, mindMap],
-                isGeneratingMindMap: false,
-            }));
-
-            toast.success('Mind map generated successfully');
-            return mindMap;
+            throw new Error('Parse failed');
         } catch (error) {
+            // Log the error for debugging
+            const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+            const isNetworkError = errorMessage.includes('Network') ||
+                errorMessage.includes('backend') ||
+                errorMessage.includes('timeout') ||
+                errorMessage.includes('Failed to fetch');
+
             console.error('Failed to generate mind map:', error);
-            set({ isGeneratingMindMap: false });
-            toast.error('Failed to generate mind map. Please try again.');
-            throw error;
+
+            // Only use fallback for network/AI service errors
+            if (isNetworkError) {
+                try {
+                    const mindMap = generateMockMindMap(sessionId, topicName, concepts);
+                    const stateAfterDelay = get();
+                    if (!stateAfterDelay.isGeneratingMindMap) throw new Error('Mind map generation was cancelled');
+                    // Update state immediately for instant UI updates (optimistic update)
+                    set((state) => ({
+                        mindMaps: [...state.mindMaps, mindMap],
+                        isGeneratingMindMap: false,
+                    }));
+                    // Emit real-time event immediately for instant UI updates across all components
+                    realTimeEvents.emit(EVENTS.MINDMAP_GENERATED, mindMap);
+                    // Sync to backend in background (non-blocking)
+                    syncMindMapToBackend(mindMap).catch(e => {
+                        console.error('Failed to sync mind map to backend:', e);
+                    });
+                    toast.success('Mind map generated successfully');
+                    return mindMap;
+                } catch (fallbackError) {
+                    console.error('Failed to generate fallback mind map:', fallbackError);
+                    set({ isGeneratingMindMap: false });
+                    const userMessage = isNetworkError
+                        ? 'Unable to connect to AI service. Please check your connection and try again.'
+                        : 'Failed to generate mind map. Please try again.';
+                    toast.error(userMessage);
+                    throw fallbackError;
+                }
+            } else {
+                // For validation or other non-network errors, don't use fallback
+                set({ isGeneratingMindMap: false });
+                toast.error(errorMessage || 'Failed to generate mind map. Please try again.');
+                throw error;
+            }
         }
     },
 
@@ -603,39 +841,95 @@ export const useResourceStore = create<ResourceStore>((set, get) => ({
         set({ isGeneratingFlashcards: true });
 
         try {
-            // Validate inputs
             if (!sessionId) {
                 throw new Error('Invalid session ID for flashcard generation');
             }
+            const topicName = extractTopicNameFromContent(content) ?? 'Topic';
+            const model: AiModelType = useSettingsStore.getState().settings.aiTutor?.preferredAiModel ?? 'llama';
+            const contentStr = (content ?? []).join('\n').slice(0, 3000);
+            const domainConstraint = buildDomainConstraint();
+            const { professionName } = getDomainContextForResources();
+            const domainContext = professionName ? ` for ${professionName} students` : '';
+            const prompt = `${domainConstraint}You are an expert tutor. Generate 5-10 flashcards${domainContext} for topic "${topicName}". Content: ${contentStr}. ${professionName ? `All questions and answers MUST be relevant to ${professionName}. Use ${professionName}-appropriate terminology. ` : ''}Reply with only a JSON array: [ { "question": "...", "answer": "..." } ]. No markdown or explanation.`;
+            const { content: aiText } = await generateContent(prompt, model);
+            const jsonMatch = aiText.match(/\[[\s\S]*\]/);
+            const arr = jsonMatch ? JSON.parse(jsonMatch[0]) : null;
+            const cards: Flashcard[] = Array.isArray(arr) ? arr.slice(0, 12).map((item: { question?: string; answer?: string }, i: number) => ({
+                id: `card_${Date.now()}_${i}`,
+                sessionId,
+                question: item.question ?? '?',
+                answer: item.answer ?? '?',
+                difficulty: 'medium',
+                tags: [topicName],
+                nextReviewDate: new Date().toISOString(),
+                intervalDays: 0,
+                easeFactor: 2.5,
+                repetitions: 0,
+            })) : [];
 
-            // Get topic name from current session if available
-            // This would ideally come from the teaching session, but for now we'll extract from content
-            const topicName = extractTopicNameFromContent(content);
-
-            await new Promise(resolve => setTimeout(resolve, 1500));
-
-            // Double-check state hasn't changed during async operation
-            const stateAfterDelay = get();
-            if (!stateAfterDelay.isGeneratingFlashcards) {
-                // Generation was cancelled
-                throw new Error('Flashcard generation was cancelled');
+            if (cards.length > 0) {
+                const stateAfterDelay = get();
+                if (!stateAfterDelay.isGeneratingFlashcards) throw new Error('Flashcard generation was cancelled');
+                // Update state immediately for instant UI updates (optimistic update)
+                set((state) => ({
+                    flashcards: [...state.flashcards, ...cards],
+                    isGeneratingFlashcards: false,
+                }));
+                // Emit real-time event immediately for instant UI updates across all components
+                realTimeEvents.emit(EVENTS.FLASHCARDS_GENERATED, cards);
+                // Sync to backend in background (non-blocking)
+                syncFlashcardsToBackend(cards).catch(e => {
+                    console.error('Failed to sync flashcards to backend:', e);
+                });
+                toast.success(`Generated ${cards.length} flashcards`);
+                return cards;
             }
-
-            // Generate topic-specific flashcards with content
-            const cards = generateMockFlashcards(sessionId, topicName, content);
-
-            set((state) => ({
-                flashcards: [...state.flashcards, ...cards],
-                isGeneratingFlashcards: false,
-            }));
-
-            toast.success(`Generated ${cards.length} flashcards`);
-            return cards;
+            throw new Error('Parse failed');
         } catch (error) {
+            // Log the error for debugging
+            const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+            const isNetworkError = errorMessage.includes('Network') ||
+                errorMessage.includes('backend') ||
+                errorMessage.includes('timeout') ||
+                errorMessage.includes('Failed to fetch');
+
             console.error('Failed to generate flashcards:', error);
-            set({ isGeneratingFlashcards: false });
-            toast.error('Failed to generate flashcards. Please try again.');
-            throw error;
+
+            // Only use fallback for network/AI service errors
+            if (isNetworkError) {
+                try {
+                    const topicName = extractTopicNameFromContent(content);
+                    const cards = generateMockFlashcards(sessionId, topicName ?? 'Topic', content);
+                    const stateAfterDelay = get();
+                    if (!stateAfterDelay.isGeneratingFlashcards) throw new Error('Flashcard generation was cancelled');
+                    // Update state immediately for instant UI updates (optimistic update)
+                    set((state) => ({
+                        flashcards: [...state.flashcards, ...cards],
+                        isGeneratingFlashcards: false,
+                    }));
+                    // Emit real-time event immediately for instant UI updates across all components
+                    realTimeEvents.emit(EVENTS.FLASHCARDS_GENERATED, cards);
+                    // Sync to backend in background (non-blocking)
+                    syncFlashcardsToBackend(cards).catch(e => {
+                        console.error('Failed to sync flashcards to backend:', e);
+                    });
+                    toast.success(`Generated ${cards.length} flashcards`);
+                    return cards;
+                } catch (fallbackError) {
+                    console.error('Failed to generate fallback flashcards:', fallbackError);
+                    set({ isGeneratingFlashcards: false });
+                    const userMessage = isNetworkError
+                        ? 'Unable to connect to AI service. Please check your connection and try again.'
+                        : 'Failed to generate flashcards. Please try again.';
+                    toast.error(userMessage);
+                    throw fallbackError;
+                }
+            } else {
+                // For validation or other non-network errors, don't use fallback
+                set({ isGeneratingFlashcards: false });
+                toast.error(errorMessage || 'Failed to generate flashcards. Please try again.');
+                throw error;
+            }
         }
     },
 

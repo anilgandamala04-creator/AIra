@@ -87,7 +87,7 @@ const courses: CourseData = {
  * If pre-defined content exists, returns it.
  * Otherwise, generates comprehensive content using AI analysis.
  */
-export const getCourseContent = (topicId: string, topicName?: string, description?: string, subjectArea?: string): TeachingStep[] | null => {
+export const getCourseContent = (topicId: string, topicName?: string, description?: string, subjectArea?: string): TeachingStep[] => {
     // First, check if we have pre-defined content
     if (courses[topicId]) {
         return courses[topicId];
@@ -103,7 +103,7 @@ export const getCourseContent = (topicId: string, topicName?: string, descriptio
                 subjectArea
             );
             
-            // Cache the generated content (optional - could store in memory or localStorage)
+            // Cache the generated content in memory (Firestore handles persistence)
             if (generatedSteps && generatedSteps.length > 0) {
                 return generatedSteps;
             }

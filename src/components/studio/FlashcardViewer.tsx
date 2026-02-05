@@ -56,15 +56,15 @@ export default function FlashcardViewer({ flashcards, onPerformanceUpdate }: Fla
     }
 
     const difficultyColors = {
-        easy: 'bg-green-100 text-green-600',
-        medium: 'bg-amber-100 text-amber-600',
-        hard: 'bg-red-100 text-red-600',
+        easy: 'bg-green-100 dark:bg-green-900/30 text-green-600 dark:text-green-400',
+        medium: 'bg-amber-100 dark:bg-amber-900/30 text-amber-600 dark:text-amber-400',
+        hard: 'bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400',
     };
 
     return (
-        <div className="flex flex-col items-center">
+        <div className="flex flex-col items-center min-w-0 max-w-full w-full">
             {/* Progress */}
-            <div className="w-full flex items-center justify-between mb-4">
+            <div className="w-full flex items-center justify-between gap-2 mb-4 min-w-0">
                 <span className="text-sm text-gray-500 dark:text-slate-400">
                     Card {currentIndex + 1} of {flashcards.length}
                 </span>
@@ -121,7 +121,7 @@ export default function FlashcardViewer({ flashcards, onPerformanceUpdate }: Fla
                         initial={{ opacity: 0, height: 0 }}
                         animate={{ opacity: 1, height: 'auto' }}
                         exit={{ opacity: 0, height: 0 }}
-                        className="w-full mt-2 p-3 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-700"
+                        className="w-full mt-2 p-3 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800/50 rounded-lg text-sm text-amber-700 dark:text-amber-300"
                     >
                         💡 <strong>Hint:</strong> {currentCard.hint}
                     </motion.div>
@@ -141,7 +141,7 @@ export default function FlashcardViewer({ flashcards, onPerformanceUpdate }: Fla
                 {currentCard.hint && !isFlipped && (
                     <button
                         onClick={() => setShowHint(!showHint)}
-                        className="px-3 py-1.5 text-sm bg-amber-100 text-amber-600 rounded-lg hover:bg-amber-200 transition-colors"
+                        className="px-3 py-1.5 text-sm bg-amber-100 dark:bg-amber-900/30 text-amber-600 dark:text-amber-400 rounded-lg hover:bg-amber-200 dark:hover:bg-amber-900/50 transition-colors"
                     >
                         {showHint ? 'Hide Hint' : 'Show Hint'}
                     </button>
@@ -174,28 +174,28 @@ export default function FlashcardViewer({ flashcards, onPerformanceUpdate }: Fla
                     >
                         <button
                             onClick={() => handlePerformance('again')}
-                            className="flex items-center gap-1 px-3 py-2 text-sm bg-red-100 text-red-600 rounded-lg hover:bg-red-200 transition-colors"
+                            className="flex items-center gap-1 px-3 py-2 text-sm bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400 rounded-lg hover:bg-red-200 dark:hover:bg-red-900/50 transition-colors"
                         >
                             <X className="w-4 h-4" />
                             Again
                         </button>
                         <button
                             onClick={() => handlePerformance('hard')}
-                            className="flex items-center gap-1 px-3 py-2 text-sm bg-amber-100 text-amber-600 rounded-lg hover:bg-amber-200 transition-colors"
+                            className="flex items-center gap-1 px-3 py-2 text-sm bg-amber-100 dark:bg-amber-900/30 text-amber-600 dark:text-amber-400 rounded-lg hover:bg-amber-200 dark:hover:bg-amber-900/50 transition-colors"
                         >
                             <Clock className="w-4 h-4" />
                             Hard
                         </button>
                         <button
                             onClick={() => handlePerformance('good')}
-                            className="flex items-center gap-1 px-3 py-2 text-sm bg-green-100 text-green-600 rounded-lg hover:bg-green-200 transition-colors"
+                            className="flex items-center gap-1 px-3 py-2 text-sm bg-green-100 dark:bg-green-900/30 text-green-600 dark:text-green-400 rounded-lg hover:bg-green-200 dark:hover:bg-green-900/50 transition-colors"
                         >
                             <Check className="w-4 h-4" />
                             Good
                         </button>
                         <button
                             onClick={() => handlePerformance('easy')}
-                            className="flex items-center gap-1 px-3 py-2 text-sm bg-blue-100 text-blue-600 rounded-lg hover:bg-blue-200 transition-colors"
+                            className="flex items-center gap-1 px-3 py-2 text-sm bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 rounded-lg hover:bg-blue-200 dark:hover:bg-blue-900/50 transition-colors"
                         >
                             🎯 Easy
                         </button>

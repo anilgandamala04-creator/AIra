@@ -1,0 +1,19 @@
+rules_version = '2';
+// Storage rules for AIra – Firebase is the core backend.
+// Paths: user-content/{uid}/... (see backendService.ts STORAGE_BUCKET_PATH)
+service firebase.storage {
+  match /b/{bucket}/o {
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    function isOwner(uid) {
+      return isAuthenticated() && request.auth.uid == uid;
+    }
+    match /user-content/{userId}/{allPaths=**} {
+      allow read, write: if isOwner(userId);
+    }
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

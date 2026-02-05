@@ -1,0 +1,171 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // ============================================================================
+    // Helper Functions
+    // ============================================================================
+    
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    function isOwner(uid) {
+      return isAuthenticated() && request.auth.uid == uid;
+    }
+    
+    // Get user role from Firestore (defaults to 'student' if document doesn't exist)
+    function getUserRole() {
+      return exists(/databases/$(database)/documents/users/$(request.auth.uid)) 
+        ? get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role 
+        : 'student';
+    }
+    
+    // Get user plan from Firestore (defaults to 'simple' if document doesn't exist)
+    function getUserPlan() {
+      return exists(/databases/$(database)/documents/users/$(request.auth.uid)) 
+        ? get(/databases/$(database)/documents/users/$(request.auth.uid)).data.plan 
+        : 'simple';
+    }
+    
+    // Check if user has required role
+    function hasRole(role) {
+      return isAuthenticated() && getUserRole() == role;
+    }
+    
+    // Check if user has required plan or higher
+    function hasPlan(minPlan) {
+      return isAuthenticated() && (
+        (getUserPlan() == 'enterprise') ||
+        (getUserPlan() == 'pro' && (minPlan == 'simple' || minPlan == 'pro')) ||
+        (getUserPlan() == 'simple' && minPlan == 'simple')
+      );
+    }
+    
+    // Check if user is admin
+    function isAdmin() {
+      return hasRole('admin');
+    }
+    
+    function hasRequiredFields(fields) {
+      return request.resource.data.keys().hasAll(fields);
+    }
+    
+    // ============================================================================
+    // Users Collection
+    // ============================================================================
+    
+    match /users/{userId} {
+      // Users can read their own data, admins can read all
+      allow read: if isOwner(userId) || isAdmin();
+      
+      // Users can create their own document with required fields
+      allow create: if isOwner(userId) 
+        && request.resource.data.keys().hasAll(['role', 'plan'])
+        && request.resource.data.role is string
+        && request.resource.data.plan is string;
+      
+      // Users can update their own data (but not role/plan unless admin)
+      allow update: if isOwner(userId) 
+        && (!('role' in request.resource.data.diff(resource.data).affectedKeys()) || isAdmin())
+        && (!('plan' in request.resource.data.diff(resource.data).affectedKeys()) || isAdmin());
+      
+      // Only admins can delete user documents
+      allow delete: if isAdmin();
+      
+      // ============================================================================
+      // User Subcollections
+      // ============================================================================
+      
+      // Teaching sessions - all authenticated users
+      match /sessions/{sessionId} {
+        allow read: if isOwner(userId);
+        allow create: if isOwner(userId) 
+          && hasRequiredFields(['topicName', 'status', 'createdAt']);
+        allow update: if isOwner(userId);
+        allow delete: if isOwner(userId);
+      }
+      
+      // Doubts - all authenticated users
+      match /doubts/{doubtId} {
+        allow read: if isOwner(userId);
+        allow create: if isOwner(userId) 
+          && hasRequiredFields(['question', 'sessionId', 'createdAt']);
+        allow update: if isOwner(userId);
+        allow delete: if isOwner(userId);
+      }
+      
+      // Notes - all authenticated users
+      match /notes/{noteId} {
+        allow read: if isOwner(userId);
+        allow create: if isOwner(userId) 
+          && hasRequiredFields(['topicName', 'createdAt']);
+        allow update: if isOwner(userId);
+        allow delete: if isOwner(userId);
+      }
+      
+      // Flashcards - all authenticated users
+      match /flashcards/{cardId} {
+        allow read: if isOwner(userId);
+        allow create: if isOwner(userId) 
+          && hasRequiredFields(['question', 'answer', 'createdAt']);
+        allow update: if isOwner(userId);
+        allow delete: if isOwner(userId);
+      }
+      
+      // Mind maps - all authenticated users
+      match /mindmaps/{mapId} {
+        allow read: if isOwner(userId);
+        allow create: if isOwner(userId) 
+          && hasRequiredFields(['topicName', 'createdAt']);
+        allow update: if isOwner(userId);
+        allow delete: if isOwner(userId);
+      }
+      
+      // Chat sessions - Pro and Enterprise plans only
+      match /chat_sessions/{sessionId} {
+        allow read: if isOwner(userId) && hasPlan('pro');
+        allow create: if isOwner(userId) && hasPlan('pro')
+          && hasRequiredFields(['createdAt']);
+        allow update: if isOwner(userId) && hasPlan('pro');
+        allow delete: if isOwner(userId) && hasPlan('pro');
+      }
+      
+      // Studio resources - Pro and Enterprise plans only
+      match /studio_resources/{resourceId} {
+        allow read: if isOwner(userId) && hasPlan('pro');
+        allow create: if isOwner(userId) && hasPlan('pro')
+          && hasRequiredFields(['type', 'createdAt']);
+        allow update: if isOwner(userId) && hasPlan('pro');
+        allow delete: if isOwner(userId) && hasPlan('pro');
+      }
+      
+      // Analytics - Pro and Enterprise plans only
+      match /analytics/{analyticsId} {
+        allow read: if isOwner(userId) && hasPlan('pro');
+        allow create: if isOwner(userId) && hasPlan('pro');
+        allow update: if isOwner(userId) && hasPlan('pro');
+        allow delete: if false; // Analytics are append-only
+      }
+    }
+    
+    // ============================================================================
+    // Subjects Collection (Professional → Subject → Topic mapping)
+    // ============================================================================
+    
+    match /subjects/{subjectId} {
+      // All authenticated users can read subjects
+      allow read: if isAuthenticated();
+      
+      // Only admins can create/update/delete subjects
+      allow create, update, delete: if isAdmin();
+    }
+    
+    // ============================================================================
+    // Default Deny
+    // ============================================================================
+    
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

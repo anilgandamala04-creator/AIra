@@ -12,9 +12,9 @@ const resources = {
             continueWithApple: 'Continue with Apple',
             signInWithEmail: 'Sign in with Email',
             continueAsGuest: 'Continue as Guest',
-            skipForDemo: 'Skip login for demo',
 
             // Auth forms
+            name: 'Your name',
             email: 'Email',
             password: 'Password',
             confirmPassword: 'Confirm Password',
@@ -114,13 +114,14 @@ const resources = {
     }
 };
 
+// Language is now loaded from Firestore settings in App.tsx
+// This function is no longer needed as all data is stored in Firestore
+
 i18n
     .use(initReactI18next)
     .init({
         resources,
-        lng: localStorage.getItem('ai-tutor-settings') 
-            ? JSON.parse(localStorage.getItem('ai-tutor-settings') || '{}').state?.settings?.language || 'en'
-            : 'en',
+        lng: 'en', // Default language, will be overridden by Firestore settings in App.tsx
         fallbackLng: 'en',
         interpolation: {
             escapeValue: false

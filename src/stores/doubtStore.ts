@@ -1,5 +1,34 @@
 import { create } from 'zustand';
 import type { Doubt, DoubtResolution, QuizQuestion } from '../types';
+import { resolveDoubt as resolveDoubtApi, type AiModelType } from '../services/aiApi';
+import { useSettingsStore } from './settingsStore';
+import { useAuthStore } from './authStore';
+import { saveDoubt as saveDoubtToDb, updateDoubt as updateDoubtInDb } from '../services/backendService';
+import { useTeachingStore } from './teachingStore';
+import { realTimeEvents, EVENTS } from '../utils/realTimeSync';
+
+// Helper to sync doubts to Firestore if user is logged in
+async function syncDoubtToBackend(doubt: Doubt): Promise<void> {
+    const { user, isGuest } = useAuthStore.getState();
+    if (user?.id && !isGuest) {
+        try {
+            await saveDoubtToDb(user.id, doubt);
+        } catch (e) {
+            console.error('Failed to sync doubt to backend:', e);
+        }
+    }
+}
+
+async function syncDoubtUpdateToBackend(doubtId: string, updates: Partial<Doubt>): Promise<void> {
+    const { user, isGuest } = useAuthStore.getState();
+    if (user?.id && !isGuest) {
+        try {
+            await updateDoubtInDb(user.id, doubtId, updates);
+        } catch (e) {
+            console.error('Failed to update doubt in backend:', e);
+        }
+    }
+}
 
 interface DoubtStore {
     doubts: Doubt[];
@@ -8,6 +37,7 @@ interface DoubtStore {
     showVerificationQuiz: boolean;
     currentQuiz: QuizQuestion | null;
     quizTimeoutId: ReturnType<typeof setTimeout> | null; // Track timeout for cleanup
+    _autoResolveTimeouts: Record<string, ReturnType<typeof setTimeout>>; // Track auto-resolve timeouts by doubt ID (plain object for Zustand compatibility)
 
     // Actions
     raiseDoubt: (question: string, sessionId: string, stepNumber: number, stepTitle: string) => Doubt;
@@ -21,57 +51,6 @@ interface DoubtStore {
     clearSessionDoubts: (sessionId: string) => void;
 }
 
-// Mock AI resolution generator
-const generateMockResolution = (question: string): DoubtResolution => {
-    const explanations: Record<string, DoubtResolution> = {
-        'p wave': {
-            explanation: 'The P wave represents atrial depolarization - the electrical signal that causes both atria to contract and push blood into the ventricles. It\'s the first deflection seen on a normal ECG trace. A normal P wave should be:\n\n• Duration: 0.08-0.10 seconds\n• Amplitude: Less than 2.5mm\n• Upright in leads I, II, aVF\n• Inverted in aVR',
-            visualAids: ['p-wave-diagram', 'atrial-conduction-animation'],
-            examples: [
-                'In atrial enlargement, P waves become tall (>2.5mm) or wide (>0.12s)',
-                'In atrial fibrillation, P waves are replaced by fibrillatory waves',
-            ],
-            quizQuestion: {
-                id: 'q1',
-                question: 'What cardiac event does the P wave represent?',
-                type: 'multiple_choice',
-                options: ['Ventricular depolarization', 'Atrial depolarization', 'Ventricular repolarization', 'Atrial repolarization'],
-                correctAnswer: 1,
-                explanation: 'The P wave represents atrial depolarization, which occurs when the electrical impulse spreads through both atria.',
-            },
-            resolvedAt: new Date().toISOString(),
-            understandingConfirmed: false,
-        },
-        'qrs': {
-            explanation: 'The QRS complex represents ventricular depolarization - the electrical activation of both ventricles. It\'s the most prominent wave on the ECG because the ventricles have much more muscle mass than the atria.\n\nKey features:\n• Normal duration: <0.12 seconds (3 small squares)\n• A widened QRS suggests conduction delay (bundle branch block)\n• The shape varies based on which lead you\'re viewing',
-            visualAids: ['qrs-complex-diagram', 'ventricular-conduction'],
-            examples: [
-                'Left bundle branch block shows a wide QRS with "M" pattern in V5-V6',
-                'Right bundle branch block shows RSR\' pattern in V1',
-            ],
-            resolvedAt: new Date().toISOString(),
-            understandingConfirmed: false,
-        },
-        default: {
-            explanation: 'Great question! Let me explain this concept in more detail.\n\nThe electrocardiogram (ECG) is a fundamental diagnostic tool that records the heart\'s electrical activity. Each component of the ECG waveform represents a specific phase of the cardiac cycle.',
-            visualAids: ['ecg-overview'],
-            examples: [
-                'The cardiac cycle consists of systole (contraction) and diastole (relaxation)',
-                'Each heartbeat is initiated by the SA node, the heart\'s natural pacemaker',
-            ],
-            resolvedAt: new Date().toISOString(),
-            understandingConfirmed: false,
-        },
-    };
-
-    const lowerQuestion = question.toLowerCase();
-    if (lowerQuestion.includes('p wave')) {
-        return explanations['p wave'];
-    } else if (lowerQuestion.includes('qrs')) {
-        return explanations['qrs'];
-    }
-    return explanations['default'];
-};
 
 export const useDoubtStore = create<DoubtStore>((set, get) => ({
     doubts: [],
@@ -80,6 +59,7 @@ export const useDoubtStore = create<DoubtStore>((set, get) => ({
     showVerificationQuiz: false,
     currentQuiz: null,
     quizTimeoutId: null,
+    _autoResolveTimeouts: {} as Record<string, ReturnType<typeof setTimeout>>,
 
     raiseDoubt: (question, sessionId, stepNumber, stepTitle) => {
         const doubt: Doubt = {
@@ -94,25 +74,69 @@ export const useDoubtStore = create<DoubtStore>((set, get) => ({
             status: 'pending',
         };
 
-        set((state) => ({
-            doubts: [...state.doubts, doubt],
-            activeDoubt: doubt,
-        }));
+        // Get previous active doubt BEFORE updating state (race condition prevention)
+        const previousState = get();
+        const previousActiveDoubtId = previousState.activeDoubt?.id;
 
-        // Auto-start resolving after a short delay
-        // Note: This timeout completes quickly (500ms), so cleanup is handled automatically
-        setTimeout(() => {
+        // Create timeout BEFORE state update to ensure it's available for tracking
+        const timeoutId = setTimeout(() => {
             const currentState = get();
+            // Remove timeout from object since it's executing
+            if (currentState._autoResolveTimeouts[doubt.id]) {
+                // eslint-disable-next-line @typescript-eslint/no-unused-vars
+                const { [doubt.id]: _, ...updatedTimeouts } = currentState._autoResolveTimeouts;
+                set({ _autoResolveTimeouts: updatedTimeouts });
+            }
             // Only resolve if this doubt is still the active one
             if (currentState.activeDoubt?.id === doubt.id) {
                 currentState.startResolvingDoubt(doubt.id);
             }
         }, 500);
 
+        // Single atomic state update: add doubt, set as active, clear previous timeout, track new timeout
+        set((state) => {
+            // Clear timeout for previous active doubt if it exists
+            let newTimeouts = { ...state._autoResolveTimeouts };
+            if (previousActiveDoubtId && newTimeouts[previousActiveDoubtId]) {
+                const previousTimeout = newTimeouts[previousActiveDoubtId];
+                clearTimeout(previousTimeout);
+                // eslint-disable-next-line @typescript-eslint/no-unused-vars
+                const { [previousActiveDoubtId]: _, ...rest } = newTimeouts;
+                newTimeouts = rest;
+            }
+            // Track new timeout atomically
+            newTimeouts = { ...newTimeouts, [doubt.id]: timeoutId };
+            return {
+                doubts: [...state.doubts, doubt],
+                activeDoubt: doubt,
+                _autoResolveTimeouts: newTimeouts,
+            };
+        });
+
+        // Emit real-time event immediately for instant UI updates
+        realTimeEvents.emit(EVENTS.DOUBT_RAISED, doubt);
+
+        // Sync to backend in background
+        syncDoubtToBackend(doubt);
+
         return doubt;
     },
 
-    setActiveDoubt: (doubt) => set({ activeDoubt: doubt }),
+    setActiveDoubt: (doubt) => {
+        const state = get();
+        // Clear auto-resolve timeout if setting active doubt to null or different doubt
+        if (state.activeDoubt?.id && state.activeDoubt.id !== doubt?.id) {
+            const timeout = state._autoResolveTimeouts[state.activeDoubt.id];
+            if (timeout) {
+                clearTimeout(timeout);
+                // eslint-disable-next-line @typescript-eslint/no-unused-vars
+                const { [state.activeDoubt.id]: _, ...newTimeouts } = state._autoResolveTimeouts;
+                set({ activeDoubt: doubt, _autoResolveTimeouts: newTimeouts });
+                return;
+            }
+        }
+        set({ activeDoubt: doubt });
+    },
 
     startResolvingDoubt: (doubtId) => {
         set((state) => ({
@@ -122,23 +146,61 @@ export const useDoubtStore = create<DoubtStore>((set, get) => ({
             ),
         }));
 
-        // Simulate AI processing
+        // Call real AI backend (LLaMA or Mistral via aiApi)
         const doubt = get().doubts.find((d) => d.id === doubtId);
-        if (doubt) {
-            // Note: This timeout completes quickly (2000ms), so cleanup is handled automatically
-            setTimeout(() => {
-                const currentState = get();
-                // Only resolve if doubt still exists and is still resolving
-                const currentDoubt = currentState.doubts.find((d) => d.id === doubtId);
-                if (currentDoubt && currentDoubt.status === 'resolving') {
-                    const resolution = generateMockResolution(doubt.question);
-                    currentState.resolveDoubt(doubtId, resolution);
-                }
-            }, 2000);
+        if (!doubt) {
+            set({ isResolvingDoubt: false });
+            return;
         }
+
+        // Get rich context from the current teaching session
+        const teachingState = useTeachingStore.getState();
+        const currentSession = teachingState.currentSession;
+        const currentStep = currentSession?.teachingSteps?.[teachingState.currentStep];
+
+        const model: AiModelType = useSettingsStore.getState().settings.aiTutor?.preferredAiModel ?? 'llama';
+
+        // Build comprehensive context for better AI responses
+        const contextParts = [
+            currentSession?.topicName ? `Topic: ${currentSession.topicName}` : '',
+            doubt.context.stepTitle ? `Section: ${doubt.context.stepTitle}` : '',
+            currentStep?.content ? `Current lesson content: ${currentStep.content.slice(0, 500)}` : '',
+        ].filter(Boolean);
+        const context = contextParts.join('. ');
+
+        resolveDoubtApi(doubt.question, context, model)
+            .then((resolution) => {
+                const quizQuestion = resolution.quizQuestion
+                    ? {
+                        id: `quiz_${doubtId}`,
+                        question: resolution.quizQuestion.question,
+                        type: 'multiple_choice' as const,
+                        options: resolution.quizQuestion.options,
+                        correctAnswer: resolution.quizQuestion.correctAnswer,
+                        explanation: resolution.quizQuestion.explanation,
+                    }
+                    : undefined;
+                get().resolveDoubt(doubtId, {
+                    explanation: resolution.explanation,
+                    examples: resolution.examples ?? [],
+                    quizQuestion,
+                    resolvedAt: new Date().toISOString(),
+                    understandingConfirmed: false,
+                });
+            })
+            .catch((error) => {
+                console.error('Failed to resolve doubt:', error);
+                set((state) => ({
+                    isResolvingDoubt: false,
+                    doubts: state.doubts.map((d) =>
+                        d.id === doubtId ? { ...d, status: 'pending' as const } : d
+                    ),
+                }));
+            });
     },
 
     resolveDoubt: (doubtId, resolution) => {
+        const resolvedDoubt = get().doubts.find(d => d.id === doubtId);
         set((state) => ({
             isResolvingDoubt: false,
             doubts: state.doubts.map((d) =>
@@ -149,6 +211,14 @@ export const useDoubtStore = create<DoubtStore>((set, get) => ({
                 : state.activeDoubt,
         }));
 
+        // Emit real-time event immediately for instant UI updates
+        if (resolvedDoubt) {
+            realTimeEvents.emit(EVENTS.DOUBT_RESOLVED, { ...resolvedDoubt, resolution, status: 'resolved' });
+        }
+
+        // Sync resolution to Database
+        syncDoubtUpdateToBackend(doubtId, { resolution, status: 'resolved' });
+
         // Show verification quiz if available
         if (resolution.quizQuestion) {
             // Clear any existing timeout
@@ -156,7 +226,7 @@ export const useDoubtStore = create<DoubtStore>((set, get) => ({
             if (currentState.quizTimeoutId) {
                 clearTimeout(currentState.quizTimeoutId);
             }
-            
+
             const timeoutId = setTimeout(() => {
                 const state = get();
                 // Only show quiz if still in resolved state
@@ -170,7 +240,7 @@ export const useDoubtStore = create<DoubtStore>((set, get) => ({
                 // Clear timeout ID after execution
                 set({ quizTimeoutId: null });
             }, 1000);
-            
+
             set({ quizTimeoutId: timeoutId });
         }
     },
@@ -187,7 +257,11 @@ export const useDoubtStore = create<DoubtStore>((set, get) => ({
     },
 
     confirmUnderstanding: (doubtId) => {
-        set((state) => ({
+        const state = get();
+        if (state.quizTimeoutId) {
+            clearTimeout(state.quizTimeoutId);
+        }
+        set({
             doubts: state.doubts.map((d) =>
                 d.id === doubtId && d.resolution
                     ? { ...d, resolution: { ...d.resolution, understandingConfirmed: true } }
@@ -195,7 +269,8 @@ export const useDoubtStore = create<DoubtStore>((set, get) => ({
             ),
             showVerificationQuiz: false,
             currentQuiz: null,
-        }));
+            quizTimeoutId: null,
+        });
     },
 
     getSessionDoubts: (sessionId) => {
@@ -203,9 +278,24 @@ export const useDoubtStore = create<DoubtStore>((set, get) => ({
     },
 
     clearSessionDoubts: (sessionId) => {
-        set((state) => ({
-            doubts: state.doubts.filter((d) => d.sessionId !== sessionId),
-            activeDoubt: state.activeDoubt?.sessionId === sessionId ? null : state.activeDoubt,
-        }));
+        set((state) => {
+            // Clear timeouts for doubts being removed
+            const doubtsToRemove = state.doubts.filter((d) => d.sessionId === sessionId);
+            let newTimeouts = { ...state._autoResolveTimeouts };
+            doubtsToRemove.forEach((doubt) => {
+                const timeout = newTimeouts[doubt.id];
+                if (timeout) {
+                    clearTimeout(timeout);
+                    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+                    const { [doubt.id]: _, ...rest } = newTimeouts;
+                    newTimeouts = rest;
+                }
+            });
+            return {
+                doubts: state.doubts.filter((d) => d.sessionId !== sessionId),
+                activeDoubt: state.activeDoubt?.sessionId === sessionId ? null : state.activeDoubt,
+                _autoResolveTimeouts: newTimeouts,
+            };
+        });
     },
 }));

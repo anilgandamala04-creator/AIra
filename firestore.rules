@@ -1,0 +1,41 @@
+rules_version = '2';
+// Firestore rules for AIra – Firebase is the core backend.
+// Collections: profiles, sessions, doubts, notes, flashcards, mindmaps (see backendService.ts)
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    function isOwner(uid) {
+      return isAuthenticated() && request.auth.uid == uid;
+    }
+    // Profile document per user (doc id = uid)
+    match /profiles/{userId} {
+      allow read, write: if isOwner(userId);
+    }
+    // User-owned documents (each has userId field)
+    match /sessions/{docId} {
+      allow read, create, update, delete: if isAuthenticated()
+        && (resource == null ? request.resource.data.userId == request.auth.uid : resource.data.userId == request.auth.uid);
+    }
+    match /doubts/{docId} {
+      allow read, create, update, delete: if isAuthenticated()
+        && (resource == null ? request.resource.data.userId == request.auth.uid : resource.data.userId == request.auth.uid);
+    }
+    match /notes/{docId} {
+      allow read, create, update, delete: if isAuthenticated()
+        && (resource == null ? request.resource.data.userId == request.auth.uid : resource.data.userId == request.auth.uid);
+    }
+    match /flashcards/{docId} {
+      allow read, create, update, delete: if isAuthenticated()
+        && (resource == null ? request.resource.data.userId == request.auth.uid : resource.data.userId == request.auth.uid);
+    }
+    match /mindmaps/{docId} {
+      allow read, create, update, delete: if isAuthenticated()
+        && (resource == null ? request.resource.data.userId == request.auth.uid : resource.data.userId == request.auth.uid);
+    }
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

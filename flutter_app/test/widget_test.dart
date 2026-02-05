@@ -9,10 +9,16 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:easy_localization/easy_localization.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:ai_tutor/main.dart';
 
 void main() {
+  setUpAll(() async {
+    TestWidgetsFlutterBinding.ensureInitialized();
+    SharedPreferences.setMockInitialValues({});
+  });
+
   testWidgets('App loads successfully', (WidgetTester tester) async {
     // Build our app and trigger a frame.
     await tester.pumpWidget(
@@ -20,13 +26,16 @@ void main() {
         supportedLocales: const [Locale('en', 'US')],
         path: 'assets/localization',
         fallbackLocale: const Locale('en', 'US'),
+        startLocale: const Locale('en', 'US'),
+        saveLocale: false, // Don't save locale in tests
+        useOnlyLangCode: true,
         child: const ProviderScope(
           child: AiTutorApp(),
         ),
       ),
     );
 
-    // Verify that the app loads (check for login screen or any initial screen)
+    // Verify that the app loads
     await tester.pumpAndSettle();
     
     // The app should render without errors

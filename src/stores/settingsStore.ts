@@ -1,6 +1,12 @@
 import { create } from 'zustand';
-import { persist } from 'zustand/middleware';
 import type { AppSettings, SettingsTemplate } from '../types';
+import { useAuthStore } from './authStore';
+import { updateUserSettings as syncSettingsToBackend } from '../services/backendService';
+import { realTimeEvents, EVENTS } from '../utils/realTimeSync';
+
+// Hydration flag to prevent toast notifications during initial load
+let isHydrating = true;
+setTimeout(() => { isHydrating = false; }, 1000);
 
 interface SettingsStore {
     settings: AppSettings;
@@ -57,6 +63,7 @@ const defaultSettings: AppSettings = {
         responseStyle: 'detailed',
         analogiesEnabled: true,
         clinicalExamplesEnabled: true,
+        preferredAiModel: 'llama',
     },
 };
 
@@ -107,93 +114,141 @@ const builtInTemplates: SettingsTemplate[] = [
     },
 ];
 
-export const useSettingsStore = create<SettingsStore>()(
-    persist(
-        (set, get) => ({
-            settings: defaultSettings,
-            templates: builtInTemplates,
-
-            updateSettings: (updates) => set((state) => ({
-                settings: { ...state.settings, ...updates },
-            })),
-
-            updateNotifications: (updates) => set((state) => ({
-                settings: {
-                    ...state.settings,
-                    notifications: { ...state.settings.notifications, ...updates },
-                },
-            })),
-
-            updateAccessibility: (updates) => set((state) => ({
-                settings: {
-                    ...state.settings,
-                    accessibility: { ...state.settings.accessibility, ...updates },
-                },
-            })),
-
-            updatePrivacy: (updates) => set((state) => ({
-                settings: {
-                    ...state.settings,
-                    privacy: { ...state.settings.privacy, ...updates },
-                },
-            })),
-
-            updateAiTutor: (updates) => set((state) => ({
-                settings: {
-                    ...state.settings,
-                    aiTutor: { ...state.settings.aiTutor, ...updates },
-                },
-            })),
-
-            applyTemplate: (templateId) => {
-                const template = get().templates.find(t => t.id === templateId);
-                if (template) {
-                    set((state) => ({
-                        settings: {
-                            ...state.settings,
-                            ...template.settings,
-                            notifications: { ...state.settings.notifications, ...template.settings.notifications },
-                            accessibility: { ...state.settings.accessibility, ...template.settings.accessibility },
-                            privacy: { ...state.settings.privacy, ...template.settings.privacy },
-                            aiTutor: { ...state.settings.aiTutor, ...template.settings.aiTutor },
-                        },
-                    }));
+function syncSettingsIfLoggedIn(showToast = false) {
+    const { user, isGuest } = useAuthStore.getState();
+    if (user?.id && !isGuest) {
+        syncSettingsToBackend(user.id, useSettingsStore.getState().settings)
+            .then(() => {
+                if (showToast && !isHydrating) {
+                    // Import toast dynamically to avoid circular dependency
+                    import('./toastStore').then(({ toast }) => {
+                        toast.success('Settings saved');
+                    });
                 }
+            })
+            .catch((e: Error) => console.error('Backend sync settings:', e));
+    }
+}
+
+export const useSettingsStore = create<SettingsStore>()((set, get) => ({
+    settings: defaultSettings,
+    templates: builtInTemplates,
+
+    updateSettings: (updates) => {
+        set((state) => {
+            const newSettings = { ...state.settings, ...updates };
+            // Emit real-time events immediately for instant UI updates
+            if (updates.theme && updates.theme !== state.settings.theme) {
+                realTimeEvents.emit(EVENTS.THEME_CHANGE, updates.theme);
+            }
+            if (updates.language && updates.language !== state.settings.language) {
+                realTimeEvents.emit(EVENTS.LANGUAGE_CHANGE, updates.language);
+            }
+            if (updates.accessibility && updates.accessibility !== state.settings.accessibility) {
+                realTimeEvents.emit(EVENTS.ACCESSIBILITY_CHANGE, updates.accessibility);
+            }
+            realTimeEvents.emit(EVENTS.SETTINGS_UPDATE, newSettings);
+            return { settings: newSettings };
+        });
+        syncSettingsIfLoggedIn();
+    },
+
+    updateNotifications: (updates) => {
+        set((state) => {
+            const newSettings = {
+                ...state.settings,
+                notifications: { ...state.settings.notifications, ...updates },
+            };
+            realTimeEvents.emit(EVENTS.SETTINGS_UPDATE, newSettings);
+            return { settings: newSettings };
+        });
+        syncSettingsIfLoggedIn();
+    },
+
+    updateAccessibility: (updates) => {
+        set((state) => {
+            const newSettings = {
+                ...state.settings,
+                accessibility: { ...state.settings.accessibility, ...updates },
+            };
+            realTimeEvents.emit(EVENTS.ACCESSIBILITY_CHANGE, newSettings.accessibility);
+            realTimeEvents.emit(EVENTS.SETTINGS_UPDATE, newSettings);
+            return { settings: newSettings };
+        });
+        syncSettingsIfLoggedIn();
+    },
+
+    updatePrivacy: (updates) => {
+        set((state) => ({
+            settings: {
+                ...state.settings,
+                privacy: { ...state.settings.privacy, ...updates },
             },
+        }));
+        syncSettingsIfLoggedIn();
+    },
 
-            saveAsTemplate: (name, description) => set((state) => ({
-                templates: [
-                    ...state.templates,
-                    {
-                        id: 'custom_' + Date.now(),
-                        name,
-                        description,
-                        isBuiltIn: false,
-                        settings: state.settings,
-                    },
-                ],
-            })),
-
-            deleteTemplate: (templateId) => set((state) => ({
-                templates: state.templates.filter(t => t.id !== templateId || t.isBuiltIn),
-            })),
-
-            exportSettings: () => JSON.stringify(get().settings, null, 2),
-
-            importSettings: (json) => {
-                try {
-                    const imported = JSON.parse(json) as AppSettings;
-                    set({ settings: { ...defaultSettings, ...imported } });
-                    return true;
-                } catch {
-                    return false;
-                }
+    updateAiTutor: (updates) => {
+        set((state) => ({
+            settings: {
+                ...state.settings,
+                aiTutor: { ...state.settings.aiTutor, ...updates },
             },
+        }));
+        syncSettingsIfLoggedIn();
+    },
 
-            resetToDefaults: () => set({ settings: defaultSettings }),
-        }),
-        {
-            name: 'ai-tutor-settings',
+    applyTemplate: (templateId) => {
+        const template = get().templates.find(t => t.id === templateId);
+        if (template) {
+            const ts = template.settings ?? {};
+            set((state) => ({
+                settings: {
+                    ...state.settings,
+                    ...ts,
+                    notifications: { ...state.settings.notifications, ...(ts.notifications ?? {}) },
+                    accessibility: { ...state.settings.accessibility, ...(ts.accessibility ?? {}) },
+                    privacy: { ...state.settings.privacy, ...(ts.privacy ?? {}) },
+                    aiTutor: { ...state.settings.aiTutor, ...(ts.aiTutor ?? {}) },
+                },
+            }));
+            syncSettingsIfLoggedIn();
         }
-    )
+    },
+
+    saveAsTemplate: (name, description) => set((state) => ({
+        templates: [
+            ...state.templates,
+            {
+                id: 'custom_' + Date.now(),
+                name,
+                description,
+                isBuiltIn: false,
+                settings: state.settings,
+            },
+        ],
+    })),
+
+    deleteTemplate: (templateId) => set((state) => ({
+        templates: state.templates.filter(t => t.id !== templateId || t.isBuiltIn),
+    })),
+
+    exportSettings: () => JSON.stringify(get().settings, null, 2),
+
+    importSettings: (json) => {
+        try {
+            const imported = JSON.parse(json) as AppSettings;
+            set({ settings: { ...defaultSettings, ...imported } });
+            syncSettingsIfLoggedIn();
+            return true;
+        } catch {
+            return false;
+        }
+    },
+
+    resetToDefaults: () => {
+        set({ settings: defaultSettings });
+        syncSettingsIfLoggedIn();
+    },
+})
 );

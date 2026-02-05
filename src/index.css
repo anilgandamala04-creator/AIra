@@ -11,19 +11,38 @@
   --gradient-mid: #a855f7;
   --gradient-end: #f9a8d4;
 
-  /* Three-panel layout: page padding 24-32px, gap 20-24px; panels share (100% - 2*gap) */
-  --layout-page-px: 28px;
-  --layout-gap: 22px;
-  --layout-panels-available: calc(100% - 2 * var(--layout-gap));
-  --panel-chat-width: calc(var(--layout-panels-available) * 0.21);
-  --panel-teaching-width: calc(var(--layout-panels-available) * 0.58);
-  --panel-studio-width: calc(var(--layout-panels-available) * 0.21);
-  --panel-padding: 18px;
-  --panel-header-gap: 18px;
-  --stack-gap: 15px;
-  --rhythm: 8px;
-  --chat-block-height: 80px;
-  --chat-search-height: 42px;
+  /* Layout: Three horizontally aligned panels with consistent spacing and proportional widths.
+     Page padding 24-32px; uniform gap 20-24px between panels. Chat 20-22% | Teaching 56-60% | Studio 18-20%.
+     All panels share same vertical start/end; internal padding 16-20px; 8px rhythm; 14-16px stack gaps; 16-20px below headers.
+     Fluid variants scale with viewport for responsive behavior. */
+  --layout-page-px: 28px;          /* 24-32px horizontal page padding */
+  --layout-gap: 22px;              /* 20-24px uniform gap between panels */
+  --layout-page-px-fluid: clamp(12px, 2.5vw, 28px);
+  --layout-gap-fluid: clamp(12px, 2vw, 22px);
+  --layout-header-height: 80px;     /* top offset: panels begin below viewport top */
+  --layout-header-padding-y: 8px;
+  /* Use 100vw so panel columns sum to full width; symmetric with page padding left and right */
+  --layout-panels-available: calc(100vw - 2 * var(--layout-page-px) - 2 * var(--layout-gap));
+  --panel-chat-width: calc(var(--layout-panels-available) * 0.21);    /* 20-22% left */
+  --panel-teaching-width: calc(var(--layout-panels-available) * 0.58); /* 56-60% center */
+  --panel-studio-width: calc(var(--layout-panels-available) * 0.21);  /* 18-20% right, same rules as Chat */
+  --panel-padding: 18px;            /* 16-20px internal padding, content aligned to edges */
+  --panel-title-height: 52px;        /* 48-56px dedicated panel header height, consistent across Chat/Teaching/Studio */
+  --panel-header-gap: 18px;         /* 16-20px spacing below headers */
+  --panel-radius: 24px;             /* soft rounded rectangles */
+  --panel-bg: #ffffff;
+  --card-radius: 13px;
+  --input-pill-radius: 24px;
+  --stack-gap: 15px;               /* 14-16px between stacked elements */
+  --rhythm: 8px;                   /* ~8px rhythm system */
+  --chat-card-bg: #f8f9fa;
+  --studio-card-radius: 12px;
+  --chat-block-min-height: 80px;   /* 70-90px for two stacked blocks */
+  --chat-input-area-height: 58px;
+  --chat-search-height: 44px;       /* 40-44px bottom search area */
+  --chat-input-height: 44px;
+  --chat-send-size: 44px;
+  --chat-input-gap: 8px;
   --studio-block-min-height: 72px;
   
   /* Font size variables */
@@ -35,6 +54,13 @@
   
   /* High contrast mode */
   --high-contrast: 0;
+
+  /* Animation timing (for CSS transitions; Framer uses utils/animations.ts) */
+  --duration-fast: 0.2s;
+  --duration-normal: 0.28s;
+  --duration-slow: 0.4s;
+  --ease-default: cubic-bezier(0.4, 0, 0.2, 1);
+  --ease-out: cubic-bezier(0, 0, 0.2, 1);
 }
 
 /* Font size settings */
@@ -99,6 +125,10 @@ body {
 }
 
 /* Ensure global background matches theme even outside page shells (e.g. loaders) */
+html.dark {
+  --chat-card-bg: rgb(51 65 85);
+  --panel-bg: rgb(30 41 59);
+}
 html.dark body {
   background: linear-gradient(135deg, #020617 0%, #0f172a 45%, #1e293b 100%);
 }
@@ -114,6 +144,94 @@ html.dark[data-high-contrast="true"] body {
 
 #root {
   min-height: 100vh;
+  min-height: 100dvh;
+  width: 100%;
+  overflow-x: hidden;
+}
+
+/* Main OS screen (TeachingPage) uses fixed inset-0 and sets body overflow hidden;
+   no additional root scroll when full-screen layout is active */
+
+/* Main OS screen panel: off-white (no pure white), rounded corners ~24px, soft shadow, subtle border for light mode visibility.
+   Panels float above background; shadow low-opacity, wide blur. */
+@layer utilities {
+  .os-panel {
+    min-width: 0;
+    min-height: 0;
+    background: var(--panel-bg, #ffffff);
+    border-radius: var(--panel-radius);
+    box-shadow: 0 2px 16px -2px rgba(0, 0, 0, 0.08), 0 6px 24px -4px rgba(0, 0, 0, 0.06), 0 0 0 1px rgba(0, 0, 0, 0.04);
+    border: 1px solid rgba(0, 0, 0, 0.06);
+  }
+  html.dark .os-panel {
+    --panel-bg: rgb(30 41 59);
+    background: var(--panel-bg);
+    box-shadow: 0 2px 16px -2px rgba(0, 0, 0, 0.2), 0 6px 24px -4px rgba(0, 0, 0, 0.12);
+    border: 1px solid rgba(255, 255, 255, 0.05);
+  }
+  .transition-smooth {
+    transition-duration: 0.2s;
+    transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+  }
+  .transition-smooth-slow {
+    transition-duration: 0.28s;
+    transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+  }
+  /* Consistent UI/button transitions: color, background, transform, opacity (respects reduce-motion) */
+  .transition-ui {
+    transition-property: color, background-color, border-color, box-shadow, opacity, transform;
+    transition-duration: var(--duration-fast);
+    transition-timing-function: var(--ease-default);
+  }
+  .btn-interactive:active {
+    transform: scale(0.98);
+  }
+  /* Subtle fade-in-up for content (e.g. sections) */
+  .animate-in {
+    animation: animate-in 0.28s var(--ease-default) forwards;
+  }
+  @keyframes animate-in {
+    from {
+      opacity: 0;
+      transform: translateY(8px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+  /* Input focus ring transition */
+  input:focus, select:focus, textarea:focus, button:focus-visible {
+    transition: box-shadow var(--duration-fast) var(--ease-default), outline var(--duration-fast) var(--ease-default);
+  }
+  /* Panel header: dedicated area, consistent height, high-contrast title, left-aligned, visually separated */
+  .panel-header {
+    min-height: var(--panel-title-height);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding-left: var(--panel-padding);
+    padding-right: var(--panel-padding);
+    padding-top: 0;
+    padding-bottom: 0;
+    margin-bottom: var(--panel-header-gap);
+    border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+    flex-shrink: 0;
+    min-width: 0;
+  }
+  html.dark .panel-header {
+    border-bottom-color: rgba(255, 255, 255, 0.06);
+  }
+  .panel-title {
+    font-size: 17px;
+    font-weight: 600;
+    line-height: 1.3;
+    color: #111827;
+    letter-spacing: -0.01em;
+  }
+  html.dark .panel-title {
+    color: #f1f5f9;
+  }
 }
 
 /* Glass morphism utility */
@@ -188,25 +306,10 @@ html.dark[data-high-contrast="true"] body {
 *:focus-visible {
   outline: 2px solid var(--color-primary);
   outline-offset: 2px;
+  transition: outline-color var(--duration-fast) var(--ease-default), outline-offset var(--duration-fast) var(--ease-default);
 }
 
-/* Skip to main content link for screen readers */
-.skip-to-main {
-  position: absolute;
-  top: -40px;
-  left: 0;
-  background: var(--color-primary);
-  color: white;
-  padding: 8px 16px;
-  text-decoration: none;
-  z-index: 100;
-}
-
-.skip-to-main:focus {
-  top: 0;
-}
-
-/* Custom scrollbar */
+/* Custom scrollbar - Light Mode */
 ::-webkit-scrollbar {
   width: 8px;
   height: 8px;
@@ -226,19 +329,24 @@ html.dark[data-high-contrast="true"] body {
   background: rgba(168, 85, 247, 0.5);
 }
 
+/* Custom scrollbar - Dark Mode */
+html.dark ::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.2);
+}
+
+html.dark ::-webkit-scrollbar-thumb {
+  background: rgba(168, 85, 247, 0.4);
+}
+
+html.dark ::-webkit-scrollbar-thumb:hover {
+  background: rgba(168, 85, 247, 0.6);
+}
+
 /* Responsive Design Utilities */
 @layer utilities {
   /* Mobile-first responsive containers */
   .container-responsive {
     @apply w-full px-4 sm:px-6 md:px-8 lg:px-12;
-  }
-
-  /* Touch-friendly buttons on mobile */
-  @media (max-width: 768px) {
-    button, a, [role="button"] {
-      min-height: 44px;
-      min-width: 44px;
-    }
   }
 
   /* Responsive text sizes */
@@ -284,54 +392,101 @@ html.dark[data-high-contrast="true"] body {
     @apply grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4;
   }
 
-  /* Safe area for mobile notches */
+  /* Safe area for mobile notches and orientation */
   .safe-top {
-    padding-top: env(safe-area-inset-top);
+    padding-top: max(0px, env(safe-area-inset-top));
   }
 
   .safe-bottom {
-    padding-bottom: env(safe-area-inset-bottom);
+    padding-bottom: max(0px, env(safe-area-inset-bottom));
   }
 
   .safe-left {
-    padding-left: env(safe-area-inset-left);
+    padding-left: max(0px, env(safe-area-inset-left));
   }
 
   .safe-right {
-    padding-right: env(safe-area-inset-right);
+    padding-right: max(0px, env(safe-area-inset-right));
+  }
+
+  /* Keyboard-visible focus: high contrast ring for keyboard users */
+  .focus-keyboard:focus {
+    outline: none;
+  }
+  .focus-keyboard:focus-visible {
+    outline: 2px solid var(--color-primary);
+    outline-offset: 2px;
   }
 }
 
-/* Mobile-specific optimizations */
+/* Touch target utility: WCAG 2.5.5 minimum 44×44px for touch/pointer */
+.touch-target {
+  min-height: 44px;
+  min-width: 44px;
+}
+
+/* Mobile (< 640px): touch targets and readability */
 @media (max-width: 640px) {
-  /* Reduce padding on mobile */
   .container-responsive {
     @apply px-3;
   }
 
-  /* Larger touch targets */
-  button, a, [role="button"] {
-    @apply min-h-[44px] min-w-[44px];
+  /* Touch-friendly: buttons and interactive elements at least 44px (WCAG 2.5.5) */
+  button, [role="button"], .touch-target {
+    min-height: 44px;
+    min-width: 44px;
+  }
+  nav a, [role="tablist"] a, [role="tablist"] button {
+    min-height: 44px;
+    min-width: 44px;
   }
 
-  /* Better text readability */
   body {
     -webkit-text-size-adjust: 100%;
     text-size-adjust: 100%;
   }
 }
 
-/* Tablet optimizations */
+/* Prevent horizontal overflow and clipping on all viewports */
+.overflow-y-auto {
+  overflow-x: hidden;
+}
+
+/* Tablet (641px–1024px): balanced spacing */
 @media (min-width: 641px) and (max-width: 1024px) {
   .container-responsive {
     @apply px-6;
   }
 }
 
-/* Prevent horizontal scroll on mobile */
+/* Laptop/desktop (1025px+): full layout */
+@media (min-width: 1025px) {
+  .container-responsive {
+    @apply px-8 lg:px-12;
+  }
+}
+
+
+/* Hide scrollbar for horizontal tab bars (e.g. Settings) while keeping scroll */
+.scrollbar-hide {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}
+
+/* Prevent horizontal scroll and overscroll on mobile for stable layout */
 html, body {
   overflow-x: hidden;
   width: 100%;
+  overscroll-behavior-x: none;
+}
+
+/* Consistent tap feedback on touch devices: remove default highlight, use our transitions */
+button, [role="button"], a {
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
 }
 
 /* Smooth scrolling on mobile */

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/user_model.dart';
 import '../services/auth_service.dart';
@@ -45,30 +46,52 @@ class AuthState {
 
 class AuthNotifier extends StateNotifier<AuthState> {
   final AuthService _authService;
+  StreamSubscription<User?>? _authStateSubscription;
 
   AuthNotifier(this._authService) : super(AuthState()) {
-    _checkAuthStatus();
+    _initAuthListener();
   }
 
-  Future<void> _checkAuthStatus() async {
+  void _initAuthListener() {
+    // Set initial loading state
     state = state.copyWith(isLoading: true);
-    try {
-      final user = await _authService.getCurrentUser();
-      if (user != null) {
+    
+    // Listen to auth state changes in real-time
+    _authStateSubscription = _authService.authStateChanges.listen(
+      (user) {
+        if (user != null) {
+          state = state.copyWith(
+            user: user,
+            isAuthenticated: true,
+            isLoading: false,
+            isGuest: false,
+            error: null,
+          );
+        } else {
+          // Only clear if not a guest user
+          if (!state.isGuest) {
+            state = state.copyWith(
+              user: null,
+              isAuthenticated: false,
+              isLoading: false,
+              error: null,
+            );
+          }
+        }
+      },
+      onError: (error) {
         state = state.copyWith(
-          user: user,
-          isAuthenticated: true,
           isLoading: false,
+          error: error.toString(),
         );
-      } else {
-        state = state.copyWith(isLoading: false);
-      }
-    } catch (e) {
-      state = state.copyWith(
-        isLoading: false,
-        error: e.toString(),
-      );
-    }
+      },
+    );
+  }
+
+  @override
+  void dispose() {
+    _authStateSubscription?.cancel();
+    super.dispose();
   }
 
   Future<void> loginWithEmail(String email, String password) async {

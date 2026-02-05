@@ -1,3 +1,10 @@
+# Environment (never commit API keys)
+.env
+.env.local
+.env.*.local
+backend/.env
+functions/.env
+
 # Logs
 logs
 *.log

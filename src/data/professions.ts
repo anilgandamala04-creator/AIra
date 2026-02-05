@@ -1,6 +1,5 @@
 import { Profession } from '../types';
 
-
 export const professions: Profession[] = [
     {
         id: 'medicine',
