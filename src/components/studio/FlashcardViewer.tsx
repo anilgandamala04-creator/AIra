@@ -1,17 +1,52 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import type { Flashcard } from '../../types';
-import { ChevronLeft, ChevronRight, RotateCcw, Check, X, Clock, Brain } from 'lucide-react';
+import { ChevronLeft, ChevronRight, RotateCcw, Check, X, Clock, Brain, Shuffle, Download } from 'lucide-react';
 
 interface FlashcardViewerProps {
     flashcards: Flashcard[];
     onPerformanceUpdate?: (id: string, performance: 'again' | 'hard' | 'good' | 'easy') => void;
+    /** When true, do not advance to next card after rating; parent will update the list (e.g. review flow). */
+    skipNextAfterPerformance?: boolean;
+    /** Optional deck title for export filename */
+    deckTitle?: string;
 }
 
-export default function FlashcardViewer({ flashcards, onPerformanceUpdate }: FlashcardViewerProps) {
+function shuffleArray<T>(arr: T[]): T[] {
+    const out = [...arr];
+    for (let i = out.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [out[i], out[j]] = [out[j], out[i]];
+    }
+    return out;
+}
+
+export default function FlashcardViewer({ flashcards, onPerformanceUpdate, skipNextAfterPerformance, deckTitle = 'deck' }: FlashcardViewerProps) {
     const [currentIndex, setCurrentIndex] = useState(0);
     const [isFlipped, setIsFlipped] = useState(false);
     const [showHint, setShowHint] = useState(false);
+    const [shuffleOn, setShuffleOn] = useState(false);
+    const [shuffledOrder, setShuffledOrder] = useState<Flashcard[] | null>(null);
+
+    const displayCards = shuffleOn && shuffledOrder && shuffledOrder.length === flashcards.length
+        ? shuffledOrder
+        : flashcards;
+
+    useEffect(() => {
+        setShuffledOrder(null);
+    }, [flashcards?.length]); // reset when deck changes (e.g. new session)
+
+    const handleShuffle = () => {
+        setShuffleOn((prev) => {
+            const next = !prev;
+            if (next) setShuffledOrder(shuffleArray(flashcards));
+            else setShuffledOrder(null);
+            setCurrentIndex(0);
+            setIsFlipped(false);
+            setShowHint(false);
+            return next;
+        });
+    };
 
     // Safety check: ensure flashcards array exists and has items
     if (!flashcards || flashcards.length === 0) {
@@ -22,10 +57,10 @@ export default function FlashcardViewer({ flashcards, onPerformanceUpdate }: Fla
         );
     }
 
-    const currentCard = flashcards[currentIndex];
+    const currentCard = displayCards[currentIndex];
 
     const handleNext = () => {
-        if (currentIndex < flashcards.length - 1) {
+        if (currentIndex < displayCards.length - 1) {
             setCurrentIndex(currentIndex + 1);
             setIsFlipped(false);
             setShowHint(false);
@@ -44,7 +79,7 @@ export default function FlashcardViewer({ flashcards, onPerformanceUpdate }: Fla
         if (onPerformanceUpdate && currentCard) {
             onPerformanceUpdate(currentCard.id, performance);
         }
-        handleNext();
+        if (!skipNextAfterPerformance) handleNext();
     };
 
     if (!currentCard) {
@@ -63,26 +98,63 @@ export default function FlashcardViewer({ flashcards, onPerformanceUpdate }: Fla
 
     return (
         <div className="flex flex-col items-center min-w-0 max-w-full w-full">
-            {/* Progress */}
+            {/* Progress + Shuffle + Export */}
             <div className="w-full flex items-center justify-between gap-2 mb-4 min-w-0">
                 <span className="text-sm text-gray-500 dark:text-slate-400">
-                    Card {currentIndex + 1} of {flashcards.length}
+                    Card {currentIndex + 1} of {displayCards.length}
                 </span>
-                <span className={`text-xs px-2 py-0.5 rounded-full ${difficultyColors[currentCard.difficulty]}`}>
-                    {currentCard.difficulty}
-                </span>
+                <div className="flex items-center gap-2">
+                    <button
+                        type="button"
+                        onClick={() => {
+                            const headers = 'question,answer,tags,explanation';
+                            const rows = flashcards.map((c) => {
+                                const q = `"${(c.question || '').replace(/"/g, '""')}"`;
+                                const a = `"${(c.answer || '').replace(/"/g, '""')}"`;
+                                const tags = `"${(c.tags || []).join(', ')}"`;
+                                const exp = `"${(c.explanation || '').replace(/"/g, '""')}"`;
+                                return [q, a, tags, exp].join(',');
+                            });
+                            const csv = [headers, ...rows].join('\n');
+                            const blob = new Blob([csv], { type: 'text/csv' });
+                            const url = URL.createObjectURL(blob);
+                            const a = document.createElement('a');
+                            a.href = url;
+                            a.download = `flashcards-${deckTitle.replace(/\s+/g, '-')}.csv`;
+                            a.click();
+                            URL.revokeObjectURL(url);
+                        }}
+                        className="flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-medium bg-gray-100 dark:bg-slate-700 text-gray-600 dark:text-slate-400 hover:bg-gray-200 dark:hover:bg-slate-600"
+                        title="Export as CSV"
+                    >
+                        <Download className="w-3.5 h-3.5" />
+                        Export
+                    </button>
+                    <button
+                        type="button"
+                        onClick={handleShuffle}
+                        className={`flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-medium transition-colors ${shuffleOn ? 'bg-purple-500 text-white' : 'bg-gray-100 dark:bg-slate-700 text-gray-600 dark:text-slate-400 hover:bg-gray-200 dark:hover:bg-slate-600'}`}
+                        title={shuffleOn ? 'Random order on' : 'Shuffle order'}
+                    >
+                        <Shuffle className="w-3.5 h-3.5" />
+                        {shuffleOn ? 'Shuffled' : 'Shuffle'}
+                    </button>
+                    <span className={`text-xs px-2 py-0.5 rounded-full ${difficultyColors[currentCard.difficulty]}`}>
+                        {currentCard.difficulty}
+                    </span>
+                </div>
             </div>
 
             {/* Progress bar */}
             <div className="w-full h-1.5 bg-gray-200 dark:bg-slate-700 rounded-full mb-4">
                 <div
                     className="h-full bg-gradient-to-r from-purple-500 to-pink-500 rounded-full transition-all"
-                    style={{ width: `${((currentIndex + 1) / flashcards.length) * 100}%` }}
+                    style={{ width: `${((currentIndex + 1) / displayCards.length) * 100}%` }}
                 />
             </div>
 
             {/* Card */}
-            <div className="relative w-full h-64 perspective-1000">
+            <div className="relative w-full h-80 sm:h-64 perspective-1000">
                 <motion.div
                     className="absolute inset-0 cursor-pointer"
                     onClick={() => setIsFlipped(!isFlipped)}
@@ -96,7 +168,7 @@ export default function FlashcardViewer({ flashcards, onPerformanceUpdate }: Fla
                         style={{ backfaceVisibility: 'hidden' }}
                     >
                         <Brain className="w-8 h-8 mb-4 opacity-50" />
-                        <p className="text-center text-lg font-medium">{currentCard.question}</p>
+                        <p className="text-center text-lg font-medium" data-reading-content>{currentCard.question}</p>
                         <p className="text-sm text-purple-200 mt-4">Tap to reveal answer</p>
                     </div>
 
@@ -106,9 +178,9 @@ export default function FlashcardViewer({ flashcards, onPerformanceUpdate }: Fla
                         style={{ backfaceVisibility: 'hidden', transform: 'rotateY(180deg)' }}
                     >
                         <Check className="w-8 h-8 mb-4 text-green-500" />
-                        <p className="text-center text-lg font-bold text-gray-800 dark:text-slate-100 mb-2">{currentCard.answer}</p>
+                        <p className="text-center text-lg font-bold text-gray-800 dark:text-slate-100 mb-2" data-reading-content>{currentCard.answer}</p>
                         {currentCard.explanation && (
-                            <p className="text-sm text-gray-500 dark:text-slate-400 text-center mt-2">{currentCard.explanation}</p>
+                            <p className="text-sm text-gray-500 dark:text-slate-400 text-center mt-2" data-reading-content>{currentCard.explanation}</p>
                         )}
                     </div>
                 </motion.div>
@@ -156,7 +228,7 @@ export default function FlashcardViewer({ flashcards, onPerformanceUpdate }: Fla
 
                 <button
                     onClick={handleNext}
-                    disabled={currentIndex === flashcards.length - 1}
+                    disabled={currentIndex === displayCards.length - 1}
                     className="p-2 hover:bg-gray-100 dark:hover:bg-slate-800 rounded-lg transition-colors disabled:opacity-30"
                 >
                     <ChevronRight className="w-6 h-6 text-gray-600 dark:text-slate-300" />
@@ -170,7 +242,7 @@ export default function FlashcardViewer({ flashcards, onPerformanceUpdate }: Fla
                         initial={{ opacity: 0, y: 10 }}
                         animate={{ opacity: 1, y: 0 }}
                         exit={{ opacity: 0, y: 10 }}
-                        className="flex gap-2 mt-4"
+                        className="flex flex-wrap gap-2 mt-4 justify-center"
                     >
                         <button
                             onClick={() => handlePerformance('again')}

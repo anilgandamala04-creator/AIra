@@ -10,7 +10,8 @@ const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
 const OPENROUTER_MODEL = process.env.OPENROUTER_MODEL || 'qwen/qwen-2.5-7b-instruct';
 const MISTRAL_API_KEY = process.env.MISTRAL_API_KEY;
 const MISTRAL_MODEL = process.env.MISTRAL_MODEL || 'mistral-small-latest';
-const AI_REQUEST_TIMEOUT_MS = Math.max(5000, parseInt(process.env.AI_REQUEST_TIMEOUT_MS || '60000', 10) || 60000);
+const _timeoutParsed = parseInt(process.env.AI_REQUEST_TIMEOUT_MS || '60000', 10);
+const AI_REQUEST_TIMEOUT_MS = Math.max(5000, Number.isFinite(_timeoutParsed) ? _timeoutParsed : 60000);
 
 export const AI_PROMPT_MAX_LENGTH = 32_000;
 export const AI_PROMPT_MIN_LENGTH = 1;
@@ -168,6 +169,15 @@ Respond with ONLY a single word: "subject_specific" or "general". No other text.
     const jsonMatch = responseText.match(/\{[\s\S]*\}/);
     const parsed = JSON.parse(jsonMatch ? jsonMatch[0] : '{}');
     return { title: parsed.title ?? topic, sections: Array.isArray(parsed.sections) ? parsed.sections : [], summary: parsed.summary ?? '' };
+  },
+
+  async generateTeachingContentFromPrompt(fullPrompt: string, model?: ModelType) {
+    validatePrompt(fullPrompt);
+    const modelType = (model === 'mistral' ? 'mistral' : 'llama') as ModelType;
+    const responseText = await generateResponse(fullPrompt.trim(), modelType);
+    const jsonMatch = responseText.match(/\{[\s\S]*\}/);
+    const parsed = JSON.parse(jsonMatch ? jsonMatch[0] : '{}');
+    return { title: parsed.title ?? 'Lesson', sections: Array.isArray(parsed.sections) ? parsed.sections : [], summary: typeof parsed.summary === 'string' ? parsed.summary : '' };
   },
 
   async generateQuiz(topic: string, context: string, model?: ModelType) {

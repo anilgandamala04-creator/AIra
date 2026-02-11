@@ -41,6 +41,17 @@
 
 ---
 
+## Audit (Feb 7, 2026) — Stability, performance, dead code
+
+- **Timeout NaN bug:** `backend/src/server.ts`, `backend/src/services/aiService.ts`, `api/lib/aiService.ts` — `parseInt(env, 10)` can return `NaN` if env is invalid; `Math.max(5000, NaN)` breaks timeout. **Fix:** Parse once, use `Number.isFinite(parsed) ? parsed : default` so timeout is always a valid number.
+- **Dead code removed:**  
+  - `src/pages/DashboardPage.tsx` — Not referenced by any route; dashboard is shown via `DashboardView` inside Profile panel only.  
+  - `src/utils/navigation.ts` — Only export was `getDefaultRedirectPath()`; no imports in app (LoginPage uses `navigate('/')` and role-based paths directly).
+- **Style:** `src/main.tsx` — Added missing semicolon after `import './index.css'`.
+- **Verification:** `tsc -b && vite build` and backend `tsc --noEmit` pass; no new linter errors.
+
+---
+
 ## References
 
 - Previous audit details: `docs/archive/BUG_AUDIT_REPORT_LATEST.md`, `docs/archive/BUG_AUDIT_COMPLETE.md`.

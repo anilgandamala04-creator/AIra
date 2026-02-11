@@ -2,7 +2,7 @@
 
 ## 🚀 Deploy Backend for Spark Plan Architecture
 
-This guide helps you deploy the Express backend server separately so the frontend can stay on Firebase Spark plan.
+This guide helps you deploy the Express backend server separately from the frontend.
 
 ---
 
@@ -24,7 +24,7 @@ This guide helps you deploy the Express backend server separately so the fronten
    OPENROUTER_API_KEY=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
    MISTRAL_API_KEY=e5feb740-569e-47d8-bf3e-3f0a1e359862
    PORT=5000
-   FRONTEND_URL=https://aira-learning-a3884.web.app,https://aira-learning-a3884.firebaseapp.com
+   FRONTEND_URL=https://aira-learning-a3884.web.app
    NODE_ENV=production
    ```
 
@@ -56,7 +56,7 @@ This guide helps you deploy the Express backend server separately so the fronten
    heroku create aira-backend
    heroku config:set OPENROUTER_API_KEY=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
    heroku config:set MISTRAL_API_KEY=e5feb740-569e-47d8-bf3e-3f0a1e359862
-   heroku config:set FRONTEND_URL=https://aira-learning-a3884.web.app,https://aira-learning-a3884.firebaseapp.com
+   heroku config:set FRONTEND_URL=https://aira-learning-a3884.web.app
    git push heroku main
    ```
 
@@ -84,12 +84,10 @@ Set these in your deployment platform:
 # Required
 OPENROUTER_API_KEY=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
 MISTRAL_API_KEY=e5feb740-569e-47d8-bf3e-3f0a1e359862
-SUPABASE_URL=https://your-project-id.supabase.co
-SUPABASE_ANON_KEY=your-anon-key
 PORT=5000
 
 # CORS Configuration
-FRONTEND_URL=https://aira-learning-a3884.web.app,https://aira-learning-a3884.firebaseapp.com
+FRONTEND_URL=https://aira-learning-a3884.web.app
 
 # Optional
 NODE_ENV=production
@@ -138,9 +136,9 @@ const backendUrl = 'https://your-backend.onrender.com';
    ```
 
 3. **Test from Frontend**:
-   - Deploy frontend: `firebase deploy --only hosting`
-   - Visit: `https://aira-learning-a3884.web.app`
-   - Test AI features
+   - Deploy frontend to your hosting (e.g. Vercel, Netlify, or static hosting).
+   - Set `VITE_API_URL` to your backend URL.
+   - Visit your frontend URL and test AI features.
 
 ---
 
@@ -169,7 +167,7 @@ npm run dev
 
 ### CORS Errors
 
-- Make sure `FRONTEND_URL` includes your Firebase Hosting domain
+- Make sure `FRONTEND_URL` includes your frontend origin(s)
 - Check backend logs for CORS errors
 - Verify frontend is using correct backend URL
 

@@ -1,21 +1,114 @@
 <!DOCTYPE html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-    <meta name="description" content="AI Tutor - Your Intelligent Learning Companion. Interactive AI-powered teaching platform with personalized learning, real-time doubt resolution, and automated resource generation." />
-    <meta name="theme-color" content="#a855f7" />
-    <meta name="apple-mobile-web-app-capable" content="yes" />
-    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
-    <title>AI Tutor - Your Intelligent Learning Companion</title>
-  </head>
-  <body>
-    <div id="root"></div>
-    <noscript>You need JavaScript enabled to use AI Tutor.</noscript>
-    <script type="module" src="/src/main.tsx"></script>
-  </body>
+
+<head>
+  <meta charset="UTF-8" />
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+  <link rel="manifest" href="/manifest.webmanifest" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="description"
+    content="AIra - Your Intelligent Learning Companion. Interactive AI-powered teaching platform with personalized learning, real-time doubt resolution, and automated resource generation." />
+  <meta name="keywords"
+    content="AI Tutor, Learning AI, Personalized Education, Study Assistant, AI Learning Platform" />
+  <meta name="author" content="AIra Team" />
+  <link rel="canonical" href="https://aira.app" />
+
+  <!-- Open Graph / Facebook -->
+  <meta property="og:type" content="website" />
+  <meta property="og:url" content="https://aira.app/" />
+  <meta property="og:title" content="AIra - Your Intelligent Learning Companion" />
+  <meta property="og:description"
+    content="Interactive AI-powered teaching platform with personalized learning, real-time doubt resolution, and automated resource generation." />
+  <meta property="og:image" content="https://aira.app/og-image.png" />
+
+  <!-- Twitter -->
+  <meta property="twitter:card" content="summary_large_image" />
+  <meta property="twitter:url" content="https://aira.app/" />
+  <meta property="twitter:title" content="AIra - Your Intelligent Learning Companion" />
+  <meta property="twitter:description"
+    content="Interactive AI-powered teaching platform with personalized learning, real-time doubt resolution, and automated resource generation." />
+  <meta property="twitter:image" content="https://aira.app/og-image.png" />
+
+  <!-- Structured Data -->
+  <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "WebApplication",
+        "name": "AIra",
+        "description": "Interactive AI-powered teaching platform.",
+        "url": "https://aira.app",
+        "applicationCategory": "EducationalApplication",
+        "operatingSystem": "Web",
+        "offers": {
+          "@type": "Offer",
+          "price": "0",
+          "priceCurrency": "USD"
+        }
+      }
+    </script>
+
+  <meta name="theme-color" content="#a855f7" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="preconnect" href="https://firebaseapp.com">
+  <link rel="preconnect" href="https://firestore.googleapis.com">
+  <link rel="preconnect" href="https://www.gstatic.com">
+  <link rel="dns-prefetch" href="https://www.googleapis.com">
+  <link rel="dns-prefetch" href="http://localhost:5000">
+  <!-- Theme fonts: Nunito (rounded, kid-friendly) + Inter fallback + Lexend (Accessibility) -->
+  <link rel="stylesheet"
+    href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;500;600;700;800&family=Inter:wght@300;400;500;600;700;800&family=Lexend:wght@300;400;500;600;700&display=swap"
+    media="print" onload="this.media='all'">
+  <noscript>
+    <link rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;500;600;700;800&family=Inter:wght@300;400;500;600;700;800&family=Lexend:wght@300;400;500;600;700&display=swap">
+  </noscript>
+  <title>AIra - Your Intelligent Learning Companion</title>
+  <style>
+    /* Loading state: theme gradient Lavender → Pink → Sky Blue */
+    #root:empty {
+      display: flex !important;
+      min-height: 100vh;
+      align-items: center;
+      justify-content: center;
+      background: linear-gradient(180deg, #e2ddf5 0%, #eed5f2 25%, #f5d0e8 50%, #e8f4fc 85%, #bae6fd 100%);
+    }
+
+    #root:empty::after {
+      content: '';
+      width: 40px;
+      height: 40px;
+      border: 3px solid rgba(255, 255, 255, 0.8);
+      border-top-color: #8b7dd6;
+      border-radius: 50%;
+      animation: aira-spin 0.8s linear infinite;
+    }
+
+    @media (prefers-color-scheme: dark) {
+      #root:empty {
+        background: linear-gradient(to bottom right, #0f172a, #1e293b);
+      }
+
+      #root:empty::after {
+        border-color: #334155;
+        border-top-color: #a78bfa;
+      }
+    }
+
+    @keyframes aira-spin {
+      to {
+        transform: rotate(360deg);
+      }
+    }
+  </style>
+</head>
+
+<body>
+  <div id="root"></div>
+  <noscript>You need JavaScript enabled to use AI Tutor.</noscript>
+  <script type="module" src="/src/main.tsx"></script>
+</body>
+
 </html>

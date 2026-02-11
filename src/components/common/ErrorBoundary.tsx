@@ -23,6 +23,9 @@ export default class ErrorBoundary extends Component<Props, State> {
 
     componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
         console.error('ErrorBoundary caught an error:', error, errorInfo);
+        import('../../utils/errorReporting').then(({ reportError }) => {
+            reportError(error, { componentStack: errorInfo.componentStack ?? undefined });
+        }).catch(() => {});
     }
 
     handleRetry = () => {

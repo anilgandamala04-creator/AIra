@@ -1,3 +1,5 @@
+import { SUBJECT_KEYWORDS } from './domainValidation';
+
 export type VoicePickOptions = {
   /** ISO / BCP-47 base language, e.g. "en", "en-US", "fr" */
   language?: string;
@@ -25,23 +27,29 @@ function voiceQualityScore(v: SpeechSynthesisVoice, preferredLang: string): numb
     else if (pl.startsWith(lang)) score += 30;
   }
 
-  // Natural / neural / online voices tend to sound most human
-  if (name.includes('neural')) score += 220;
-  if (name.includes('natural')) score += 200;
-  if (name.includes('online')) score += 180;
-  if (name.includes('premium')) score += 120;
-  if (name.includes('enhanced')) score += 90;
+  // CRITICAL: Natural / neural / online voices are REQUIRED for human-like speech
+  // These are the highest priority - must sound realistic and human
+  if (name.includes('neural')) score += 400;  // Neural voices are most human-like
+  if (name.includes('natural')) score += 380;
+  if (name.includes('wavenet')) score += 350; // Google WaveNet voices are very natural
+  if (name.includes('online')) score += 300;
+  if (name.includes('premium')) score += 250;
+  if (name.includes('enhanced')) score += 180;
 
   // Vendor preference (Windows: Microsoft Online (Natural) voices are best)
   if (name.includes('microsoft') || uri.includes('microsoft')) score += 110;
   if (name.includes('google') || uri.includes('google')) score += 90;
 
-  // Prefer not-compact voices (compact tends to be robotic)
-  if (name.includes('compact')) score -= 120;
+  // STRONGLY penalize robotic/synthetic-sounding voices
+  if (name.includes('compact')) score -= 400;     // Compact voices are very robotic
+  if (name.includes('espeak')) score -= 500;      // eSpeak is very synthetic
+  if (name.includes('mbrola')) score -= 450;      // MBROLA is robotic
+  if (name.includes('robotic')) score -= 600;     // Explicitly robotic
+  if (name.includes('synthetic')) score -= 500;   // Synthetic voices
+  if (name.includes('desktop')) score -= 200;     // Desktop voices tend to be lower quality
 
-  // Prefer non-localService if available (often indicates cloud/online voices)
-  // (Not all browsers set this accurately; we keep it as a mild signal.)
-  if (v.localService === false) score += 25;
+  // Prefer non-localService if available (often indicates cloud/online voices - more natural)
+  if (v.localService === false) score += 100;
 
   // Some common “more human” Microsoft names
   if (name.includes('aria')) score += 40;
@@ -110,4 +118,52 @@ export function pickBestHumanVoice(
 
   return best;
 }
+
+export function trimToSentences(text: string, maxSentences: number): string {
+  const parts = text.split(/(?<=[.!?])\s+/).filter(Boolean);
+  if (parts.length <= maxSentences) return text;
+  return parts.slice(0, maxSentences).join(' ').trim();
+}
+
+export function applyAiTutorStyleToSpokenText(
+  base: string,
+  aiTutor: { personality: string; responseStyle: string; analogiesEnabled: boolean; clinicalExamplesEnabled?: boolean },
+  topicName?: string,
+  subject?: string | null
+): string {
+  let text = base;
+
+  // Response style affects length/structure
+  if (aiTutor.responseStyle === 'concise') {
+    text = trimToSentences(text, 2);
+  } else if (aiTutor.responseStyle === 'interactive') {
+    text = `${text} ... Now, quick check-in: can you explain that back in your own words?`;
+  } else if (aiTutor.responseStyle === 'adaptive') {
+    // Light heuristic: keep it shorter for long content, otherwise keep it detailed
+    text = text.length > 450 ? trimToSentences(text, 3) : text;
+  }
+
+  // Personality affects tone (kept subtle so it doesn't feel spammy)
+  if (aiTutor.personality === 'direct') {
+    // Remove some fluff-y openers if present
+    text = text.replace(/^(Now,|Let me explain this clearly\. \.\. |Notice how this works\. \.\. |Pay close attention here\. \.\. )/i, '').trim();
+  } else if (aiTutor.personality === 'humorous') {
+    text = `Quick fun note: learning sticks better when you smile. ... ${text}`;
+  } else if (aiTutor.personality === 'formal') {
+    text = `Let us proceed. ... ${text}`;
+  } else {
+    // encouraging (default) - keep as-is
+  }
+
+  // Optional curriculum-aware hooks (Generic, safe across domains)
+  if (aiTutor.clinicalExamplesEnabled && topicName && subject && SUBJECT_KEYWORDS[subject]) {
+    const subjectKeywords = SUBJECT_KEYWORDS[subject];
+    if (subjectKeywords.some(keyword => topicName.toLowerCase().includes(keyword))) {
+      text = `${text} ... In real-world scenarios related to ${subject}, this shows up in day-to-day understanding.`;
+    }
+  }
+
+  return text;
+}
+
 

@@ -1,16 +1,18 @@
-import { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import type { QuizQuestion } from '../../types';
-import { Check, X, HelpCircle, Award } from 'lucide-react';
+import { Check, X, HelpCircle, Award, Eye } from 'lucide-react';
 import { fadeScaleVariants, TRANSITION_DEFAULT, tapScale } from '../../utils/animations';
+import { getTopicVisual } from './topicVisualRegistry';
 
 interface VerificationQuizProps {
     quiz: QuizQuestion;
+    subject?: string;
     onComplete: (correct: boolean) => void;
     onSkip: () => void;
 }
 
-export default function VerificationQuiz({ quiz, onComplete, onSkip }: VerificationQuizProps) {
+export default function VerificationQuiz({ quiz, subject, onComplete, onSkip }: VerificationQuizProps) {
     const [selectedAnswer, setSelectedAnswer] = useState<number | null>(null);
     const [showResult, setShowResult] = useState(false);
     const [isCorrect, setIsCorrect] = useState(false);
@@ -48,14 +50,15 @@ export default function VerificationQuiz({ quiz, onComplete, onSkip }: Verificat
     };
 
     return (
-        <motion.div
-            initial={fadeScaleVariants.initial}
-            animate={fadeScaleVariants.animate}
-            exit={fadeScaleVariants.exit}
-            transition={TRANSITION_DEFAULT}
-            className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-3 sm:p-4 safe-top safe-bottom backdrop-blur-sm overflow-y-auto"
-            onClick={(e) => e.target === e.currentTarget && onSkip()}
-        >
+        <>
+            <motion.div
+                initial={fadeScaleVariants.initial as React.ComponentProps<typeof motion.div>['initial']}
+                animate={fadeScaleVariants.animate as React.ComponentProps<typeof motion.div>['animate']}
+                exit={fadeScaleVariants.exit as React.ComponentProps<typeof motion.div>['exit']}
+                transition={TRANSITION_DEFAULT as React.ComponentProps<typeof motion.div>['transition']}
+                className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-3 sm:p-4 safe-top safe-bottom backdrop-blur-sm overflow-y-auto"
+                onClick={(e) => e.target === e.currentTarget && onSkip()}
+            >
             <motion.div
                 className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl w-full max-w-[calc(100vw-1.5rem)] sm:max-w-lg overflow-hidden my-auto"
                 initial={{ opacity: 0, y: 16 }}
@@ -78,6 +81,38 @@ export default function VerificationQuiz({ quiz, onComplete, onSkip }: Verificat
                     <p className="text-lg font-medium text-gray-800 dark:text-slate-100 mb-6">
                         {quiz.question}
                     </p>
+
+                    {/* Visual Aid - Always shown (Visual-Only Mode) */}
+                    <div className="mb-6 space-y-2">
+                        <div className="flex items-center gap-2">
+                            <Eye className="w-4 h-4 text-purple-500 shrink-0" />
+                            <p className="text-xs font-medium text-gray-500 dark:text-slate-400">Reference Visual</p>
+                        </div>
+                        <div className="relative aspect-video w-full bg-slate-100 dark:bg-slate-900 rounded-xl overflow-hidden border border-gray-100 dark:border-slate-800 flex items-center justify-center p-4">
+                            {(() => {
+                                // Use quiz question or generated ID as fallback
+                                const VisualComp = getTopicVisual('', {
+                                    visualType: quiz.visualType,
+                                    visualPrompt: quiz.visualPrompt,
+                                    subjectName: subject
+                                });
+
+                                if (!VisualComp) return null;
+
+                                return (
+                                    <VisualComp
+                                        isSpeaking={false}
+                                        isPaused={true}
+                                        stepId={quiz.id || 'quiz-step'}
+                                        title="Visual Question"
+                                        visualType={quiz.visualType}
+                                        visualPrompt={quiz.visualPrompt}
+                                        topicName={subject || "Topic"}
+                                    />
+                                );
+                            })()}
+                        </div>
+                    </div>
 
                     {/* Options */}
                     {quiz.type === 'multiple_choice' && quiz.options && (
@@ -109,11 +144,11 @@ export default function VerificationQuiz({ quiz, onComplete, onSkip }: Verificat
                                         transition={TRANSITION_DEFAULT}
                                     >
                                         <span className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium ${showResult && isCorrectAnswer
-                                                ? 'bg-green-500 text-white'
-                                                : showResult && isSelected && !isCorrectAnswer
-                                                    ? 'bg-red-500 text-white'
-                                                    : isSelected
-                                                        ? 'bg-purple-500 text-white'
+                                            ? 'bg-green-500 text-white'
+                                            : showResult && isSelected && !isCorrectAnswer
+                                                ? 'bg-red-500 text-white'
+                                                : isSelected
+                                                    ? 'bg-purple-500 text-white'
                                                     : 'bg-gray-100 dark:bg-slate-800 text-gray-600 dark:text-slate-200'
                                             }`}>
                                             {showResult && isCorrectAnswer ? (
@@ -182,6 +217,7 @@ export default function VerificationQuiz({ quiz, onComplete, onSkip }: Verificat
                     </div>
                 )}
             </motion.div>
-        </motion.div>
+            </motion.div>
+        </>
     );
 }

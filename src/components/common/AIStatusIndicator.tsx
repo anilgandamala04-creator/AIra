@@ -189,12 +189,19 @@ export default function AIStatusIndicator({
               {errors.length > 0 && (
                 <div className="p-2 bg-red-500/10 rounded-lg border border-red-500/20">
                   <div className="text-xs text-red-400 font-medium mb-1">Errors</div>
-                  {errors.slice(0, 2).map((error, index) => (
+                  {errors.slice(0, 2).map((err, index) => (
                     <div key={index} className="text-xs text-red-300 dark:text-red-400 truncate">
-                      {error}
+                      {err}
                     </div>
                   ))}
                 </div>
+              )}
+
+              {/* Connection recovery hint when unhealthy */}
+              {!isHealthy && !isChecking && (
+                <p className="text-xs text-gray-400 dark:text-slate-400">
+                  Status is rechecked automatically every 15s when offline. Use the refresh button above to retry now.
+                </p>
               )}
 
               {/* Last Checked */}

@@ -5,7 +5,9 @@
  * supports multiple question types, and tracks performance.
  */
 
-import { generateContent, type AiModelType } from './aiApi';
+import { aiIntegration } from './aiIntegration';
+import { logAppEvent, ANALYTICS_EVENTS } from '../lib/analytics';
+import type { AiModelType } from './aiApi';
 import { useSettingsStore } from '../stores/settingsStore';
 
 // ============================================================================
@@ -22,6 +24,10 @@ export interface QuizQuestion {
   difficulty: 'easy' | 'medium' | 'hard';
   topic: string;
   points: number;
+  visualType?: 'diagram' | 'animation' | '3d-model' | 'interactive' | 'technical';
+  visualPrompt?: string;
+  /** Optional anonymous peer stat: percentage of learners who got this right (0-100). */
+  correctRate?: number;
 }
 
 export interface Quiz {
@@ -69,14 +75,12 @@ export async function generateQuiz(config: QuizConfig): Promise<Quiz> {
     content = [],
     numberOfQuestions = 5,
     difficulty = 'mixed',
-    // questionTypes is reserved for future use (currently only multiple_choice supported)
-    questionTypes: _questionTypes = ['multiple_choice'], // eslint-disable-line @typescript-eslint/no-unused-vars
     timeLimit,
   } = config;
 
   const model: AiModelType = useSettingsStore.getState().settings.aiTutor?.preferredAiModel ?? 'llama';
-  
-  const contextText = content.length > 0 
+
+  const contextText = content.length > 0
     ? `\n\nContext material:\n${content.slice(0, 3).join('\n\n').slice(0, 2000)}`
     : '';
 
@@ -101,15 +105,21 @@ Respond with ONLY a valid JSON array in this exact format:
     "options": ["Option A", "Option B", "Option C", "Option D"],
     "correctAnswer": 0,
     "explanation": "Explanation of why this is correct",
-    "difficulty": "easy"
+    "difficulty": "easy",
+    "visualType": "diagram | animation | 3d-model | interactive | technical",
+    "visualPrompt": "Descriptive prompt for a visual that helps clarify the question."
   }
 ]
 
 Important: correctAnswer is a 0-based index (0 for A, 1 for B, etc.)`;
 
   try {
-    const { content: aiResponse } = await generateContent(prompt, model);
-    
+    const result = await aiIntegration.generateContent(prompt, { model, retries: 3 });
+    const aiResponse = result.success && result.data ? result.data.content : '';
+    if (!aiResponse) {
+      throw new Error(result.error || 'Failed to generate quiz.');
+    }
+
     // Parse the JSON response
     const jsonMatch = aiResponse.match(/\[[\s\S]*\]/);
     if (!jsonMatch) {
@@ -117,13 +127,15 @@ Important: correctAnswer is a 0-based index (0 for A, 1 for B, etc.)`;
     }
 
     const parsedQuestions = JSON.parse(jsonMatch[0]);
-    
+
     const questions: QuizQuestion[] = parsedQuestions.map((q: {
       question: string;
       options: string[];
       correctAnswer: number;
       explanation: string;
       difficulty: string;
+      visualType?: string;
+      visualPrompt?: string;
     }, index: number) => ({
       id: `q_${Date.now()}_${index}`,
       type: 'multiple_choice' as const,
@@ -132,13 +144,15 @@ Important: correctAnswer is a 0-based index (0 for A, 1 for B, etc.)`;
       correctAnswer: q.correctAnswer,
       explanation: q.explanation,
       difficulty: (['easy', 'medium', 'hard'].includes(q.difficulty) ? q.difficulty : 'medium') as 'easy' | 'medium' | 'hard',
+      visualType: q.visualType,
+      visualPrompt: q.visualPrompt,
       topic,
       points: q.difficulty === 'easy' ? 1 : q.difficulty === 'hard' ? 3 : 2,
     }));
 
     const totalPoints = questions.reduce((sum, q) => sum + q.points, 0);
 
-    return {
+    const quizResult: Quiz = {
       id: `quiz_${Date.now()}`,
       title: `${topic} Quiz`,
       topic,
@@ -148,6 +162,8 @@ Important: correctAnswer is a 0-based index (0 for A, 1 for B, etc.)`;
       timeLimit,
       createdAt: new Date().toISOString(),
     };
+    logAppEvent(ANALYTICS_EVENTS.QUIZ_GENERATED, { topic, questionCount: questions.length });
+    return quizResult;
   } catch (error) {
     console.error('Failed to generate quiz:', error);
     // Return fallback quiz
@@ -160,7 +176,7 @@ Important: correctAnswer is a 0-based index (0 for A, 1 for B, etc.)`;
  */
 function generateFallbackQuiz(config: QuizConfig): Quiz {
   const { topic, subject = 'General', numberOfQuestions = 5 } = config;
-  
+
   const questions: QuizQuestion[] = Array.from({ length: numberOfQuestions }, (_, i) => ({
     id: `q_fallback_${Date.now()}_${i}`,
     type: 'multiple_choice' as const,
@@ -209,7 +225,7 @@ export function evaluateQuiz(
     }
   }
 
-  const percentage = Math.round((score / quiz.totalPoints) * 100);
+  const percentage = quiz.totalPoints > 0 ? Math.round((score / quiz.totalPoints) * 100) : 0;
 
   return {
     quizId: quiz.id,
@@ -310,15 +326,15 @@ export function generateTemplatedQuestions(
   count: number = 5
 ): QuizQuestion[] {
   const templates = SUBJECT_QUESTION_TEMPLATES[subject.toLowerCase()] || SUBJECT_QUESTION_TEMPLATES.science;
-  
+
   const questions: QuizQuestion[] = [];
   const difficulties: ('easy' | 'medium' | 'hard')[] = ['easy', 'medium', 'hard'];
-  
+
   for (let i = 0; i < count; i++) {
     const difficulty = difficulties[i % 3];
     const templatePool = templates[difficulty];
     const template = templatePool[i % templatePool.length];
-    
+
     const questionText = template
       .replace('{concept}', topic)
       .replace('{phenomenon}', topic)

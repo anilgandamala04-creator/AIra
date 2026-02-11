@@ -1,5 +1,5 @@
 /**
- * Health check script: verifies frontend env and backend reachability.
+ * Health check script: verifies backend reachability (and optional env).
  * Run from AIra folder: npm run health-check
  * Use after starting dev:all to confirm frontend + backend are ready.
  */
@@ -47,39 +47,24 @@ async function main() {
   log('\n--- AIra health check ---\n', 'blue');
 
   const env = loadEnv();
-
-  // Frontend env
-  const firebaseKey = env.VITE_FIREBASE_API_KEY;
-  const firebaseProject = env.VITE_FIREBASE_PROJECT_ID;
   const apiUrl = (env.VITE_API_URL || 'http://localhost:5000').replace(/\/$/, '');
 
   let passed = 0;
   let failed = 0;
 
-  if (firebaseKey && firebaseKey.length > 10) {
-    log('✓ Frontend: VITE_FIREBASE_API_KEY set', 'green');
-    passed++;
-  } else {
-    log('✗ Frontend: VITE_FIREBASE_API_KEY missing or invalid in .env', 'red');
-    failed++;
-  }
-
-  if (firebaseProject) {
-    log('✓ Frontend: VITE_FIREBASE_PROJECT_ID set', 'green');
-    passed++;
-  } else {
-    log('✗ Frontend: VITE_FIREBASE_PROJECT_ID missing in .env', 'red');
-    failed++;
-  }
-
   log(`  API base: ${apiUrl}`, 'reset');
 
-  const hasAiKey = !!(env.OPENROUTER_API_KEY || env.MISTRAL_API_KEY);
-  if (hasAiKey) {
-    log('✓ AI keys present (OPENROUTER_API_KEY or MISTRAL_API_KEY)', 'green');
-    passed++;
-  } else {
-    log('✗ No OPENROUTER_API_KEY or MISTRAL_API_KEY in .env (backend AI will be disabled)', 'yellow');
+  // Backend .env (optional - for AI)
+  const backendEnvPath = path.join(root, 'backend', '.env');
+  if (fs.existsSync(backendEnvPath)) {
+    const content = fs.readFileSync(backendEnvPath, 'utf8');
+    const hasAiKey = /OPENROUTER_API_KEY|MISTRAL_API_KEY/.test(content);
+    if (hasAiKey) {
+      log('✓ Backend: AI keys present (OPENROUTER_API_KEY or MISTRAL_API_KEY)', 'green');
+      passed++;
+    } else {
+      log('○ Backend: No OPENROUTER_API_KEY or MISTRAL_API_KEY (AI will be disabled)', 'yellow');
+    }
   }
 
   // Backend reachability
@@ -104,7 +89,7 @@ async function main() {
   if (failed === 0) {
     log('All checks passed. You can run the app (npm run dev or npm run dev:all).', 'green');
   } else {
-    log(`${failed} check(s) failed. Fix .env or start the backend as needed.`, 'yellow');
+    log(`${failed} check(s) failed. Start the backend as needed.`, 'yellow');
   }
   log('');
   process.exit(failed > 0 ? 1 : 0);

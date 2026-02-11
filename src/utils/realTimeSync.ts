@@ -47,7 +47,7 @@ class RealTimeEventEmitter {
         if (callbacks) {
             callbacks.add(callback);
         }
-        
+
         return () => {
             const callbacks = this.listeners.get(event);
             if (callbacks) {
@@ -87,37 +87,37 @@ export const EVENTS = {
     AUTH_LOGIN: 'auth:login',
     AUTH_LOGOUT: 'auth:logout',
     AUTH_STATE_CHANGE: 'auth:state_change',
-    
+
     // Profile events
     PROFILE_UPDATE: 'profile:update',
-    PROFESSION_CHANGE: 'profile:profession_change',
-    SUB_PROFESSION_CHANGE: 'profile:sub_profession_change',
-    
+    CURRICULUM_CHANGE: 'profile:curriculum_change',
+
     // Settings events
     SETTINGS_UPDATE: 'settings:update',
     THEME_CHANGE: 'settings:theme_change',
     LANGUAGE_CHANGE: 'settings:language_change',
     ACCESSIBILITY_CHANGE: 'settings:accessibility_change',
-    
+
     // Teaching events
     SESSION_START: 'teaching:session_start',
     SESSION_END: 'teaching:session_end',
     STEP_CHANGE: 'teaching:step_change',
     STEP_COMPLETE: 'teaching:step_complete',
     SPEAKING_CHANGE: 'teaching:speaking_change',
-    
+
     // Doubt events
     DOUBT_RAISED: 'doubt:raised',
     DOUBT_RESOLVED: 'doubt:resolved',
-    
+
     // Resource events
     NOTES_GENERATED: 'resource:notes_generated',
     MINDMAP_GENERATED: 'resource:mindmap_generated',
     FLASHCARDS_GENERATED: 'resource:flashcards_generated',
-    
+
     // Analytics events
     SESSION_RECORDED: 'analytics:session_recorded',
     ACHIEVEMENT_UNLOCKED: 'analytics:achievement_unlocked',
+    LEVEL_UP: 'analytics:level_up',
 } as const;
 
 // ============================================================================
@@ -134,7 +134,7 @@ export function subscribeToStore<T>(
     callback: (selectedState: unknown, previousState: unknown) => void
 ): UnsubscribeFn {
     let previousValue = selector(store.getState());
-    
+
     return store.subscribe((state) => {
         const newValue = selector(state);
         if (newValue !== previousValue) {
@@ -154,7 +154,7 @@ export function subscribeToStoreMultiple<T>(
     selectors: Array<{ selector: (state: T) => unknown; callback: (value: unknown, prev: unknown) => void }>
 ): UnsubscribeFn {
     const previousValues = selectors.map(s => s.selector(store.getState()));
-    
+
     return store.subscribe((state) => {
         selectors.forEach((s, index) => {
             const newValue = s.selector(state);
@@ -369,14 +369,14 @@ export function initRealTimeSync(): UnsubscribeFn {
         useAuthStore.subscribe((state, prevState) => {
             // Emit auth state change event
             realTimeEvents.emit(EVENTS.AUTH_STATE_CHANGE, state.isAuthenticated, state.user);
-            
+
             // When user logs out, clear profile-related state to avoid stale data
             if (prevState.isAuthenticated && !state.isAuthenticated) {
                 useUserStore.getState().resetOnboarding();
                 useUserStore.getState().clearProfile();
                 realTimeEvents.emit(EVENTS.AUTH_LOGOUT);
             }
-            
+
             // When user logs in
             if (!prevState.isAuthenticated && state.isAuthenticated) {
                 realTimeEvents.emit(EVENTS.AUTH_LOGIN, state.user);
@@ -384,33 +384,36 @@ export function initRealTimeSync(): UnsubscribeFn {
         })
     );
 
-    // Sync profile profession changes to selectedProfession and emit events
+    // Sync profile and curriculum changes and emit events
     unsubscribers.push(
         useUserStore.subscribe((state, prevState) => {
             // Profile update event
             if (state.profile !== prevState.profile) {
                 realTimeEvents.emit(EVENTS.PROFILE_UPDATE, state.profile);
             }
-            
-            // Profession change event
-            if (state.selectedProfession !== prevState.selectedProfession) {
-                realTimeEvents.emit(EVENTS.PROFESSION_CHANGE, state.selectedProfession);
-            }
-            
-            // Sub-profession change event
-            if (state.selectedSubProfession !== prevState.selectedSubProfession) {
-                realTimeEvents.emit(EVENTS.SUB_PROFESSION_CHANGE, state.selectedSubProfession);
-            }
-            
-            // Keep selectedProfession in sync with profile.profession
-            if (state.profile?.profession !== prevState.profile?.profession) {
-                if (state.profile?.profession && state.selectedProfession?.id !== state.profile.profession.id) {
-                    // Profile was updated externally (e.g., from Firestore), sync to selected
-                    useUserStore.setState({
-                        selectedProfession: state.profile.profession,
-                        selectedSubProfession: state.profile.subProfession,
-                    });
-                }
+            // Curriculum change event — ensures all screens reflect learning preferences immediately
+            const currCurriculum = {
+                curriculumType: state.curriculumType,
+                selectedBoard: state.selectedBoard,
+                selectedGrade: state.selectedGrade,
+                selectedExam: state.selectedExam,
+                selectedSubject: state.selectedSubject,
+            };
+            const prevCurriculum = {
+                curriculumType: prevState.curriculumType,
+                selectedBoard: prevState.selectedBoard,
+                selectedGrade: prevState.selectedGrade,
+                selectedExam: prevState.selectedExam,
+                selectedSubject: prevState.selectedSubject,
+            };
+            if (
+                currCurriculum.curriculumType !== prevCurriculum.curriculumType ||
+                currCurriculum.selectedBoard !== prevCurriculum.selectedBoard ||
+                currCurriculum.selectedGrade !== prevCurriculum.selectedGrade ||
+                currCurriculum.selectedExam !== prevCurriculum.selectedExam ||
+                currCurriculum.selectedSubject !== prevCurriculum.selectedSubject
+            ) {
+                realTimeEvents.emit(EVENTS.CURRICULUM_CHANGE, currCurriculum);
             }
         })
     );
@@ -420,7 +423,7 @@ export function initRealTimeSync(): UnsubscribeFn {
         useSettingsStore.subscribe((state, prevState) => {
             if (state.settings !== prevState.settings) {
                 realTimeEvents.emit(EVENTS.SETTINGS_UPDATE, state.settings);
-                
+
                 if (state.settings.theme !== prevState.settings.theme) {
                     realTimeEvents.emit(EVENTS.THEME_CHANGE, state.settings.theme);
                 }
@@ -444,12 +447,12 @@ export function initRealTimeSync(): UnsubscribeFn {
             if (!state.currentSession && prevState.currentSession) {
                 realTimeEvents.emit(EVENTS.SESSION_END, prevState.currentSession);
             }
-            
+
             // Step change
             if (state.currentStep !== prevState.currentStep) {
                 realTimeEvents.emit(EVENTS.STEP_CHANGE, state.currentStep, state.getCurrentStepData?.());
             }
-            
+
             // Speaking state change
             if (state.isSpeaking !== prevState.isSpeaking) {
                 realTimeEvents.emit(EVENTS.SPEAKING_CHANGE, state.isSpeaking);
@@ -465,11 +468,11 @@ export function initRealTimeSync(): UnsubscribeFn {
                 const newDoubt = state.doubts[state.doubts.length - 1];
                 realTimeEvents.emit(EVENTS.DOUBT_RAISED, newDoubt);
             }
-            
+
             // Doubt resolved
-            const resolvedDoubt = state.doubts.find((d, i) => 
-                prevState.doubts[i] && 
-                d.status === 'resolved' && 
+            const resolvedDoubt = state.doubts.find((d, i) =>
+                prevState.doubts[i] &&
+                d.status === 'resolved' &&
                 prevState.doubts[i].status !== 'resolved'
             );
             if (resolvedDoubt) {
@@ -503,9 +506,9 @@ export function initRealTimeSync(): UnsubscribeFn {
                 const newSession = state.sessions[state.sessions.length - 1];
                 realTimeEvents.emit(EVENTS.SESSION_RECORDED, newSession);
             }
-            
+
             // Achievement unlocked
-            const newlyUnlocked = state.achievements.find((a, i) => 
+            const newlyUnlocked = state.achievements.find((a, i) =>
                 a.unlockedAt && (!prevState.achievements[i]?.unlockedAt)
             );
             if (newlyUnlocked) {
@@ -543,7 +546,7 @@ export function createDebouncedUpdate<T>(
     delayMs: number = 100
 ): (value: T) => void {
     let timeoutId: ReturnType<typeof setTimeout> | null = null;
-    
+
     return (value: T) => {
         if (timeoutId) {
             clearTimeout(timeoutId);
@@ -566,11 +569,11 @@ export function createThrottledUpdate<T>(
     let lastUpdateTime = 0;
     let pendingValue: T | null = null;
     let timeoutId: ReturnType<typeof setTimeout> | null = null;
-    
+
     return (value: T) => {
         const now = Date.now();
         const timeSinceLastUpdate = now - lastUpdateTime;
-        
+
         if (timeSinceLastUpdate >= intervalMs) {
             // Enough time has passed, update immediately
             updateFn(value);

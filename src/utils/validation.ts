@@ -53,6 +53,31 @@ export function validatePassword(password: string, minLength: number = 8): Valid
     return { isValid: true };
 }
 
+/** Live password strength checklist (same rules as validatePassword). Use for signup UI. */
+export interface PasswordStrengthCheck {
+    label: string;
+    met: boolean;
+}
+
+export function getPasswordStrengthChecklist(password: string, minLength: number = 8): {
+    checks: PasswordStrengthCheck[];
+    allMet: boolean;
+    score: number;
+} {
+    const checks: PasswordStrengthCheck[] = [
+        { label: `At least ${minLength} characters`, met: password.length >= minLength },
+        { label: 'One uppercase letter', met: /[A-Z]/.test(password) },
+        { label: 'One lowercase letter', met: /[a-z]/.test(password) },
+        { label: 'One number', met: /[0-9]/.test(password) },
+    ];
+    const met = checks.filter((c) => c.met).length;
+    return {
+        checks,
+        allMet: met === checks.length,
+        score: password.length === 0 ? 0 : Math.round((met / checks.length) * 100),
+    };
+}
+
 /**
  * Validates required field
  */

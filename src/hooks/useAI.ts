@@ -16,7 +16,6 @@ import {
   quickHealthCheck,
   subscribeToHealthUpdates,
   startHealthMonitoring,
-  stopHealthMonitoring,
   withRetry,
   getFallbackModel,
   type AIHealthStatus,
@@ -61,7 +60,8 @@ export function useAIHealth() {
   const [health, setHealth] = useState<AIHealthStatus | null>(null);
   const [isChecking, setIsChecking] = useState(false);
 
-  // Start monitoring on mount
+  // Start monitoring on mount (or re-use existing from App). Do not stop on unmount:
+  // App owns global health lifecycle; stopping here would disable monitoring when navigating away.
   useEffect(() => {
     startHealthMonitoring(60000); // Check every minute
 
@@ -71,7 +71,7 @@ export function useAIHealth() {
 
     return () => {
       unsubscribe();
-      stopHealthMonitoring(); // Clean up health monitoring interval
+      // Intentionally do not call stopHealthMonitoring — App.tsx owns the global lifecycle
     };
   }, []);
 
@@ -181,9 +181,17 @@ export function useAIOperation<T>(
   
   const { currentModel } = useAIModel();
   const abortControllerRef = useRef<AbortController | null>(null);
+  const isMountedRef = useRef(true);
+
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
 
   const execute = useCallback(async (overrideModel?: AiModelType): Promise<T | null> => {
-    // Cancel any pending operation
+    if (!isMountedRef.current) return null;
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
     }
@@ -193,6 +201,12 @@ export function useAIOperation<T>(
     setError(null);
 
     const model = overrideModel ?? currentModel;
+    const safeSet = (resultVal: T | null, errorVal: Error | null, loading: boolean) => {
+      if (!isMountedRef.current) return;
+      setResult(resultVal);
+      setError(errorVal);
+      setIsLoading(loading);
+    };
 
     try {
       let response: T;
@@ -206,28 +220,27 @@ export function useAIOperation<T>(
         response = await operation(model);
       }
 
-      setResult(response);
+      safeSet(response, null, false);
       return response;
     } catch (err) {
-      const error = err instanceof Error ? err : new Error('AI operation failed');
-      setError(error);
-      onError?.(error);
+      const errorObj = err instanceof Error ? err : new Error('AI operation failed');
+      safeSet(null, errorObj, false);
+      onError?.(errorObj);
 
-      // Try fallback model if primary fails
       if (autoRetry) {
         const fallback = getFallbackModel(model);
         try {
           const fallbackResponse = await operation(fallback);
-          setResult(fallbackResponse);
+          safeSet(fallbackResponse, null, false);
           return fallbackResponse;
         } catch {
-          // Fallback also failed, return original error
+          // Fallback also failed; error already set
         }
       }
 
       return null;
     } finally {
-      setIsLoading(false);
+      if (isMountedRef.current) setIsLoading(false);
     }
   }, [operation, currentModel, autoRetry, maxRetries, onError]);
 
@@ -264,7 +277,7 @@ export function useDoubtResolution() {
     setError(null);
     try {
       const model: AiModelType = useSettingsStore.getState().settings.aiTutor?.preferredAiModel ?? 'llama';
-      return await resolveDoubt(question, context, model);
+      return await resolveDoubt(question, context, undefined, model);
     } catch (err) {
       const e = err instanceof Error ? err : new Error('Failed to resolve doubt');
       setError(e);
@@ -353,7 +366,7 @@ export function useTeachingContentGeneration() {
     const model: AiModelType = useSettingsStore.getState().settings.aiTutor?.preferredAiModel ?? 'llama';
 
     try {
-      const result = await withRetry(() => generateTeachingContent(topic, model));
+      const result = await withRetry(() => generateTeachingContent(topic, undefined, model));
       setContent(result);
       return result;
     } catch (err) {
@@ -394,7 +407,7 @@ export function useQuizGeneration() {
     const model: AiModelType = useSettingsStore.getState().settings.aiTutor?.preferredAiModel ?? 'llama';
 
     try {
-      const result = await withRetry(() => generateQuiz(topic, context, model));
+      const result = await withRetry(() => generateQuiz(topic, context, undefined, model));
       setQuiz(result);
       return result;
     } catch (err) {

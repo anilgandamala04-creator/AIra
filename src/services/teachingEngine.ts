@@ -40,12 +40,12 @@ export interface TeachingContent {
   estimatedDuration?: number; // seconds
 }
 
-export type VisualType = 
-  | 'diagram' 
-  | 'chart' 
-  | 'illustration' 
-  | 'code' 
-  | 'equation' 
+export type VisualType =
+  | 'diagram'
+  | 'chart'
+  | 'illustration'
+  | 'code'
+  | 'equation'
   | 'process-flow'
   | 'anatomy'
   | 'circuit'
@@ -103,14 +103,14 @@ function ensureVoicesLoaded(): Promise<SpeechSynthesisVoice[]> {
  */
 export async function getBestVoice(language?: string): Promise<SpeechSynthesisVoice | null> {
   await ensureVoicesLoaded();
-  
+
   if (cachedBestVoice && !language) {
     return cachedBestVoice;
   }
 
   const voices = speechSynthesis.getVoices();
   const settings = useSettingsStore.getState().settings;
-  
+
   return pickBestHumanVoice(voices, {
     language: language || settings.language || 'en',
     preferredName: settings.accessibility.ttsVoice || undefined,
@@ -182,7 +182,7 @@ export async function speak(options: SpeechOptions): Promise<void> {
       : await getBestVoice(language);
 
     const utterance = new SpeechSynthesisUtterance(text);
-    
+
     if (voice) {
       utterance.voice = voice;
       utterance.lang = voice.lang;
@@ -235,15 +235,15 @@ export async function speak(options: SpeechOptions): Promise<void> {
  */
 export async function speakTeachingContent(content: TeachingContent): Promise<void> {
   const { spokenContent, title } = content;
-  
+
   // Add natural introduction
   const introduction = `Let's learn about ${title}.`;
-  
+
   // Process text for natural speech patterns
   const processedText = processTextForNaturalSpeech(spokenContent);
-  
+
   const fullText = `${introduction} ${processedText}`;
-  
+
   return speak({
     text: fullText,
     onStart: () => {
@@ -260,16 +260,16 @@ export async function speakTeachingContent(content: TeachingContent): Promise<vo
  */
 export function processTextForNaturalSpeech(text: string): string {
   let processed = text;
-  
+
   // Add slight pauses after sentences
   processed = processed.replace(/\. /g, '. ');
-  
+
   // Handle abbreviations for better pronunciation
   processed = processed.replace(/e\.g\./gi, 'for example');
   processed = processed.replace(/i\.e\./gi, 'that is');
   processed = processed.replace(/etc\./gi, 'and so on');
   processed = processed.replace(/vs\./gi, 'versus');
-  
+
   // Handle common technical terms
   processed = processed.replace(/API/g, 'A P I');
   processed = processed.replace(/HTML/g, 'H T M L');
@@ -279,7 +279,7 @@ export function processTextForNaturalSpeech(text: string): string {
   processed = processed.replace(/RNA/g, 'R N A');
   processed = processed.replace(/ECG/g, 'E C G');
   processed = processed.replace(/EKG/g, 'E K G');
-  
+
   // Handle numbers and units
   processed = processed.replace(/(\d+)°C/g, '$1 degrees Celsius');
   processed = processed.replace(/(\d+)°F/g, '$1 degrees Fahrenheit');
@@ -288,7 +288,7 @@ export function processTextForNaturalSpeech(text: string): string {
   processed = processed.replace(/(\d+)m\b/g, '$1 meters');
   processed = processed.replace(/(\d+)cm/g, '$1 centimeters');
   processed = processed.replace(/(\d+)mm/g, '$1 millimeters');
-  
+
   return processed;
 }
 
@@ -353,7 +353,7 @@ const TOPIC_VISUAL_MAP: Record<string, string> = {
   'ecg': 'ECGBasicsVisual',
   'ekg': 'ECGBasicsVisual',
   'electrocardiogram': 'ECGBasicsVisual',
-  
+
   // Medicine - Neurology
   'brain': 'BrainStructureVisual',
   'neuron': 'NeuronVisual',
@@ -363,7 +363,7 @@ const TOPIC_VISUAL_MAP: Record<string, string> = {
   'spine': 'SpinalCordVisual',
   'stroke': 'StrokeVisual',
   'ischemia': 'StrokeVisual',
-  
+
   // Biology - Genetics
   'dna': 'DNAStructureVisual',
   'double-helix': 'DNAStructureVisual',
@@ -375,13 +375,13 @@ const TOPIC_VISUAL_MAP: Record<string, string> = {
   'genetics': 'HeredityVisual',
   'mendel': 'HeredityVisual',
   'punnett': 'HeredityVisual',
-  
+
   // Biology - Cell
   'cell': 'CellStructureVisual',
   'cell-structure': 'CellStructureVisual',
   'organelles': 'CellStructureVisual',
   'mitochondria': 'CellStructureVisual',
-  
+
   // Engineering - Software
   'react': 'ReactComponentVisual',
   'component': 'ReactComponentVisual',
@@ -393,14 +393,14 @@ const TOPIC_VISUAL_MAP: Record<string, string> = {
   'database': 'SQLBasicsVisual',
   'api': 'APIDesignVisual',
   'rest': 'APIDesignVisual',
-  
+
   // Engineering - Electrical
   'dc-circuit': 'DCCircuitVisual',
   'ac-circuit': 'ACCircuitVisual',
   'circuit': 'DCCircuitVisual',
   'ohm': 'DCCircuitVisual',
   'kirchhoff': 'DCCircuitVisual',
-  
+
   // Physics
   'newton': 'NewtonsLawsVisual',
   'force': 'NewtonsLawsVisual',
@@ -410,25 +410,25 @@ const TOPIC_VISUAL_MAP: Record<string, string> = {
   'thermodynamics': 'ThermodynamicsVisual',
   'heat': 'ThermodynamicsVisual',
   'entropy': 'ThermodynamicsVisual',
-  
+
   // Business
   'seo': 'SEOVisual',
   'marketing': 'SEOVisual',
   'stock': 'StockMarketVisual',
   'market': 'StockMarketVisual',
   'investing': 'StockMarketVisual',
-  
+
   // Law
   'contract': 'ContractFormationVisual',
   'legal': 'ContractFormationVisual',
-  
+
   // Psychology
   'anxiety': 'AnxietyVisual',
   'stress': 'AnxietyVisual',
   'cbt': 'CBTVisual',
   'cognitive-behavioral': 'CBTVisual',
   'therapy': 'CBTVisual',
-  
+
   // Technology - AI/ML
   'supervised': 'SupervisedLearningVisual',
   'machine-learning': 'SupervisedLearningVisual',
@@ -450,20 +450,20 @@ export function getVisualForTopic(topicId: string, topicName: string): string | 
     ...topicId.split('-'),
     ...topicName.split(' ').map(w => w.toLowerCase()),
   ];
-  
+
   for (const term of searchTerms) {
     if (TOPIC_VISUAL_MAP[term]) {
       return TOPIC_VISUAL_MAP[term];
     }
   }
-  
+
   // Check for partial matches
   for (const [key, visual] of Object.entries(TOPIC_VISUAL_MAP)) {
     if (searchTerms.some(term => term.includes(key) || key.includes(term))) {
       return visual;
     }
   }
-  
+
   // Return null instead of a generic visual - no distracting imagery
   return null;
 }
@@ -484,7 +484,7 @@ export function hasRelevantVisual(topicId: string, topicName: string): boolean {
  */
 export async function startTeachingStep(content: TeachingContent): Promise<void> {
   const store = useTeachingStore.getState();
-  
+
   // Set the current step
   if (store.currentSession) {
     const stepIndex = store.currentSession.teachingSteps?.findIndex(
@@ -494,7 +494,7 @@ export async function startTeachingStep(content: TeachingContent): Promise<void>
       store.goToStep(stepIndex);
     }
   }
-  
+
   // Start speaking the content
   await speakTeachingContent(content);
 }
@@ -504,12 +504,7 @@ export async function startTeachingStep(content: TeachingContent): Promise<void>
  */
 export function completeAndAdvance(): void {
   const store = useTeachingStore.getState();
-  const currentStep = store.getCurrentStepData();
-  
-  if (currentStep) {
-    store.completeStep(currentStep.id);
-    store.nextStep();
-  }
+  store.completeAndNextStep();
 }
 
 /**

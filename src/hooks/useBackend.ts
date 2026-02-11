@@ -26,6 +26,9 @@ import {
   deleteNote,
   deleteFlashcard,
   deleteMindMap,
+  addStepBookmark,
+  removeStepBookmark,
+  subscribeToStepBookmarks,
   type DbUser,
 } from '../services/backendService';
 import type {
@@ -34,6 +37,7 @@ import type {
   GeneratedNote,
   Flashcard,
   MindMap,
+  StepBookmark,
 } from '../types';
 
 // ============================================================================
@@ -154,6 +158,59 @@ export function useTeachingSessions(): UseTeachingSessionsResult {
 }
 
 // ============================================================================
+// Step bookmarks hook
+// ============================================================================
+
+export function useStepBookmarks(): {
+  bookmarks: StepBookmark[];
+  loading: boolean;
+  addBookmark: (topicId: string, topicName: string, stepIndex: number, stepTitle: string) => Promise<string>;
+  removeBookmark: (bookmarkId: string) => Promise<void>;
+} {
+  const [bookmarks, setBookmarks] = useState<StepBookmark[]>([]);
+  const [loading, setLoading] = useState(true);
+  const user = useAuthStore((s) => s.user);
+  const isGuest = useAuthStore((s) => s.isGuest);
+  const uid = user?.id;
+
+  useEffect(() => {
+    if (!uid || isGuest) {
+      setBookmarks([]);
+      setLoading(false);
+      return;
+    }
+    setLoading(true);
+    const unsub = subscribeToStepBookmarks(
+      uid,
+      (list: StepBookmark[]) => {
+        setBookmarks(list);
+        setLoading(false);
+      },
+      () => setLoading(false)
+    );
+    return () => unsub();
+  }, [uid, isGuest]);
+
+  const addBookmark = useCallback(
+    async (topicId: string, topicName: string, stepIndex: number, stepTitle: string) => {
+      if (!uid || isGuest) throw new Error('Must be logged in');
+      return addStepBookmark(uid, { topicId, topicName, stepIndex, stepTitle });
+    },
+    [uid, isGuest]
+  );
+
+  const removeBookmark = useCallback(
+    async (bookmarkId: string) => {
+      if (!uid) return;
+      await removeStepBookmark(uid, bookmarkId);
+    },
+    [uid]
+  );
+
+  return { bookmarks, loading, addBookmark, removeBookmark };
+}
+
+// ============================================================================
 // Doubts Hook
 // ============================================================================
 
@@ -185,7 +242,7 @@ export function useDoubts(sessionId?: string): UseDoubtsResult {
     }
 
     setLoading(true);
-    const unsubscribe = subscribeToDoubts(uid, (data) => {
+    const unsubscribe = subscribeToDoubts(uid, (data: Doubt[]) => {
       setDoubts(data);
       setLoading(false);
     }, sessionId);
@@ -244,7 +301,7 @@ export function useNotes(): UseNotesResult {
     }
 
     setLoading(true);
-    const unsubscribe = subscribeToNotes(uid, (data) => {
+    const unsubscribe = subscribeToNotes(uid, (data: GeneratedNote[]) => {
       setNotes(data);
       setLoading(false);
     });
@@ -304,7 +361,7 @@ export function useFlashcards(sessionId?: string): UseFlashcardsResult {
     }
 
     setLoading(true);
-    const unsubscribe = subscribeToFlashcards(uid, (data) => {
+    const unsubscribe = subscribeToFlashcards(uid, (data: Flashcard[]) => {
       setFlashcards(data);
       setLoading(false);
     }, sessionId);
@@ -371,7 +428,7 @@ export function useMindMaps(): UseMindMapsResult {
     }
 
     setLoading(true);
-    const unsubscribe = subscribeToMindMaps(uid, (data) => {
+    const unsubscribe = subscribeToMindMaps(uid, (data: MindMap[]) => {
       setMindMaps(data);
       setLoading(false);
     });

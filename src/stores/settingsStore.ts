@@ -1,8 +1,9 @@
 import { create } from 'zustand';
 import type { AppSettings, SettingsTemplate } from '../types';
 import { useAuthStore } from './authStore';
-import { updateUserSettings as syncSettingsToBackend } from '../services/backendService';
+import { updateUserSettingsWithOfflineQueue as syncSettingsToBackend } from '../services/backendWithOffline';
 import { realTimeEvents, EVENTS } from '../utils/realTimeSync';
+import { logAppEvent, ANALYTICS_EVENTS } from '../lib/analytics';
 
 // Hydration flag to prevent toast notifications during initial load
 let isHydrating = true;
@@ -28,12 +29,16 @@ interface SettingsStore {
     exportSettings: () => string;
     importSettings: (json: string) => boolean;
     resetToDefaults: () => void;
+
+    // Explicit sync
+    forceSyncToBackend: () => void;
 }
 
 const defaultSettings: AppSettings = {
     language: 'en',
     timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
     theme: 'light',
+    accentColor: 'purple',
 
     notifications: {
         studyReminders: true,
@@ -41,10 +46,13 @@ const defaultSettings: AppSettings = {
         goalAchievements: true,
         reviewReminders: true,
         emailDigest: 'daily',
+        dailyStudyGoalMinutes: 20,
     },
 
     accessibility: {
         fontSize: 'medium',
+        fontFamily: 'system',
+        lineSpacing: 'default',
         highContrast: false,
         reduceAnimations: false,
         textToSpeech: true,
@@ -54,6 +62,7 @@ const defaultSettings: AppSettings = {
 
     privacy: {
         analyticsEnabled: true,
+        errorReportingEnabled: false,
         shareProgress: false,
         dataRetentionMonths: 24,
     },
@@ -62,8 +71,11 @@ const defaultSettings: AppSettings = {
         personality: 'encouraging',
         responseStyle: 'detailed',
         analogiesEnabled: true,
-        clinicalExamplesEnabled: true,
         preferredAiModel: 'llama',
+    },
+
+    quiz: {
+        showCorrectAnswer: 'after_each' as const,
     },
 };
 
@@ -78,7 +90,6 @@ const builtInTemplates: SettingsTemplate[] = [
                 personality: 'encouraging',
                 responseStyle: 'detailed',
                 analogiesEnabled: true,
-                clinicalExamplesEnabled: true,
             },
         },
     },
@@ -92,7 +103,6 @@ const builtInTemplates: SettingsTemplate[] = [
                 personality: 'direct',
                 responseStyle: 'concise',
                 analogiesEnabled: false,
-                clinicalExamplesEnabled: true,
             },
         },
     },
@@ -104,6 +114,8 @@ const builtInTemplates: SettingsTemplate[] = [
         settings: {
             accessibility: {
                 fontSize: 'large',
+                fontFamily: 'system',
+                lineSpacing: 'comfortable',
                 highContrast: true,
                 reduceAnimations: true,
                 textToSpeech: true,
@@ -150,6 +162,7 @@ export const useSettingsStore = create<SettingsStore>()((set, get) => ({
             realTimeEvents.emit(EVENTS.SETTINGS_UPDATE, newSettings);
             return { settings: newSettings };
         });
+        logAppEvent(ANALYTICS_EVENTS.SETTINGS_CHANGED);
         syncSettingsIfLoggedIn();
     },
 
@@ -179,22 +192,26 @@ export const useSettingsStore = create<SettingsStore>()((set, get) => ({
     },
 
     updatePrivacy: (updates) => {
-        set((state) => ({
-            settings: {
+        set((state) => {
+            const newSettings = {
                 ...state.settings,
                 privacy: { ...state.settings.privacy, ...updates },
-            },
-        }));
+            };
+            realTimeEvents.emit(EVENTS.SETTINGS_UPDATE, newSettings);
+            return { settings: newSettings };
+        });
         syncSettingsIfLoggedIn();
     },
 
     updateAiTutor: (updates) => {
-        set((state) => ({
-            settings: {
+        set((state) => {
+            const newSettings = {
                 ...state.settings,
                 aiTutor: { ...state.settings.aiTutor, ...updates },
-            },
-        }));
+            };
+            realTimeEvents.emit(EVENTS.SETTINGS_UPDATE, newSettings);
+            return { settings: newSettings };
+        });
         syncSettingsIfLoggedIn();
     },
 
@@ -202,16 +219,21 @@ export const useSettingsStore = create<SettingsStore>()((set, get) => ({
         const template = get().templates.find(t => t.id === templateId);
         if (template) {
             const ts = template.settings ?? {};
-            set((state) => ({
-                settings: {
+            set((state) => {
+                const newSettings = {
                     ...state.settings,
                     ...ts,
                     notifications: { ...state.settings.notifications, ...(ts.notifications ?? {}) },
                     accessibility: { ...state.settings.accessibility, ...(ts.accessibility ?? {}) },
                     privacy: { ...state.settings.privacy, ...(ts.privacy ?? {}) },
-                    aiTutor: { ...state.settings.aiTutor, ...(ts.aiTutor ?? {}) },
-                },
-            }));
+                    aiTutor: { ...state.settings.aiTutor, ...(ts.aiTutor ?? {}) as Partial<AppSettings['aiTutor']> },
+                };
+                if (newSettings.theme !== state.settings.theme) realTimeEvents.emit(EVENTS.THEME_CHANGE, newSettings.theme);
+                if (newSettings.language !== state.settings.language) realTimeEvents.emit(EVENTS.LANGUAGE_CHANGE, newSettings.language);
+                if (newSettings.accessibility !== state.settings.accessibility) realTimeEvents.emit(EVENTS.ACCESSIBILITY_CHANGE, newSettings.accessibility);
+                realTimeEvents.emit(EVENTS.SETTINGS_UPDATE, newSettings);
+                return { settings: newSettings };
+            });
             syncSettingsIfLoggedIn();
         }
     },
@@ -238,7 +260,12 @@ export const useSettingsStore = create<SettingsStore>()((set, get) => ({
     importSettings: (json) => {
         try {
             const imported = JSON.parse(json) as AppSettings;
-            set({ settings: { ...defaultSettings, ...imported } });
+            const newSettings = { ...defaultSettings, ...imported };
+            set({ settings: newSettings });
+            realTimeEvents.emit(EVENTS.THEME_CHANGE, newSettings.theme);
+            realTimeEvents.emit(EVENTS.LANGUAGE_CHANGE, newSettings.language);
+            realTimeEvents.emit(EVENTS.ACCESSIBILITY_CHANGE, newSettings.accessibility);
+            realTimeEvents.emit(EVENTS.SETTINGS_UPDATE, newSettings);
             syncSettingsIfLoggedIn();
             return true;
         } catch {
@@ -248,7 +275,15 @@ export const useSettingsStore = create<SettingsStore>()((set, get) => ({
 
     resetToDefaults: () => {
         set({ settings: defaultSettings });
+        realTimeEvents.emit(EVENTS.THEME_CHANGE, defaultSettings.theme);
+        realTimeEvents.emit(EVENTS.LANGUAGE_CHANGE, defaultSettings.language);
+        realTimeEvents.emit(EVENTS.ACCESSIBILITY_CHANGE, defaultSettings.accessibility);
+        realTimeEvents.emit(EVENTS.SETTINGS_UPDATE, defaultSettings);
         syncSettingsIfLoggedIn();
+    },
+
+    forceSyncToBackend: () => {
+        syncSettingsIfLoggedIn(true);
     },
 })
 );

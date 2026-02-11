@@ -27,7 +27,23 @@ export default defineConfig({
     host: true,
     hmr: {
       overlay: true
-    }
+    },
+    // Proxy AI backend in dev to avoid CORS; requires backend on port 5000
+    // timeout: 130s so long AI requests (e.g. teaching content 2min) are not cut by proxy
+    proxy: {
+      '/api': {
+        target: 'http://localhost:5000',
+        changeOrigin: true,
+        timeout: 130000,
+        proxyTimeout: 130000,
+      },
+      '/health': {
+        target: 'http://localhost:5000',
+        changeOrigin: true,
+        timeout: 15000,
+        proxyTimeout: 15000,
+      },
+    },
   },
   build: {
     outDir: 'dist',
@@ -54,7 +70,9 @@ export default defineConfig({
             if (id.includes('lucide-react')) {
               return 'lucide-icons';
             }
-            // Other node_modules
+            if (id.includes('i18next')) {
+              return 'i18n';
+            }
             return 'vendor';
           }
           // Page chunks for lazy loading
@@ -79,7 +97,7 @@ export default defineConfig({
   resolve: {
     extensions: ['.tsx', '.ts', '.jsx', '.js']
   },
-  // Optimize dependencies
+  // Optimize dependencies (pre-bundle for faster cold start)
   optimizeDeps: {
     include: ['react', 'react-dom', 'react-router-dom', 'zustand', 'framer-motion'],
     exclude: []

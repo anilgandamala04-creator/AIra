@@ -14,7 +14,7 @@ npm run build
 npm run lint
 ```
 
-- **health-check**: Frontend env (Firebase, VITE_API_URL), backend reachability, AI models (LLaMA/Mistral).
+- **health-check**: Backend reachability, AI models (LLaMA/Mistral). Optionally set VITE_API_URL.
 - **verify-features**: Same env + backend, plus presence of key source files for all features.
 - **build**: TypeScript and Vite build must complete without errors.
 - **lint**: ESLint must pass (no errors).
@@ -89,7 +89,7 @@ Studio is available from the Teaching page or layout (e.g. panel/sidebar).
 | 5.3 | Open Flashcards | Flashcard viewer; generate or view existing cards |
 | 5.4 | Open Mind map | Mind map viewer; generate or view |
 | 5.5 | Open Quiz (studio quiz) | Quiz viewer; generate or take quiz |
-| 5.6 | Save/sync to Firestore | No console errors; data persists (if backend/Firebase configured) |
+| 5.6 | Save/sync to backend | No console errors; data persists in session (in-memory backend) |
 
 **Backend:** `/api/generate-content` (and teaching/quiz as used by studio).
 
@@ -139,10 +139,12 @@ Dashboard is embedded in the Profile panel (no separate route).
 | GET /health | Backend + AI model status | health-check, verify-features, frontend health |
 | POST /api/resolve-doubt | Doubt resolution | Teaching page doubt panel |
 | POST /api/generate-content | Generic AI content | Studio (notes, etc.) |
-| POST /api/generate-teaching-content | Teaching steps | Teaching page |
+| POST /api/generate-teaching-content | Teaching steps (accepts `topic`+context or full `prompt`) | Teaching page |
 | POST /api/generate-quiz | Quiz generation | Teaching + Studio quiz |
 
-All POST routes require Firebase auth (Bearer token). Backend must be running on the URL set in `VITE_API_URL` (default http://localhost:5000).
+Backend must be running on the URL set in `VITE_API_URL` (default http://localhost:5000). No auth token required.
+
+For full **frontend–backend integration, configuration, timeouts, retries, and reliability**, see **docs/INTEGRATION_AND_RELIABILITY.md**.
 
 ---
 

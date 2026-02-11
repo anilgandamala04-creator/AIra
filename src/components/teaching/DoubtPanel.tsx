@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useShallow } from 'zustand/react/shallow';
 import { useDoubtStore } from '../../stores/doubtStore';
@@ -8,8 +8,14 @@ import { narrateText } from '../../services/narration';
 import type { Doubt } from '../../types';
 import {
     HelpCircle, Send, Loader2, CheckCircle,
-    Lightbulb, BookOpen, ChevronDown, ChevronUp, Volume2
+    Lightbulb, BookOpen, ChevronDown, ChevronUp, Volume2, Eye, Search
 } from 'lucide-react';
+import { getTopicVisual } from './topicVisualRegistry';
+
+const DRAFT_KEY_PREFIX = 'aira-doubt-draft-';
+function getDraftKey(sessionId: string) {
+    return `${DRAFT_KEY_PREFIX}${sessionId}`;
+}
 
 interface DoubtPanelProps {
     sessionId: string;
@@ -17,8 +23,31 @@ interface DoubtPanelProps {
 }
 
 export default function DoubtPanel({ sessionId, onDoubtRaised }: DoubtPanelProps) {
-    const [question, setQuestion] = useState('');
+    const [question, setQuestionState] = useState('');
     const [expanded, setExpanded] = useState(true);
+    const [searchQuery, setSearchQuery] = useState('');
+
+    const setQuestion = useCallback((value: string | ((prev: string) => string)) => {
+        setQuestionState((prev) => {
+            const next = typeof value === 'function' ? value(prev) : value;
+            try {
+                if (next.trim()) localStorage.setItem(getDraftKey(sessionId), next);
+                else localStorage.removeItem(getDraftKey(sessionId));
+            } catch {
+                // ignore
+            }
+            return next;
+        });
+    }, [sessionId]);
+
+    useEffect(() => {
+        try {
+            const saved = localStorage.getItem(getDraftKey(sessionId));
+            if (saved != null) setQuestionState(saved);
+        } catch {
+            // ignore
+        }
+    }, [sessionId]);
 
     const { currentStep, currentSession } = useTeachingStore(
         useShallow((state) => ({
@@ -35,6 +64,14 @@ export default function DoubtPanel({ sessionId, onDoubtRaised }: DoubtPanelProps
     const ttsEnabled = useSettingsStore((state) => state.settings.accessibility.textToSpeech);
 
     const sessionDoubts = getSessionDoubts(sessionId);
+    const filteredDoubts = searchQuery.trim()
+        ? sessionDoubts.filter(
+            (d) =>
+                d.question.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                d.context.stepTitle.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                d.resolution?.explanation?.toLowerCase().includes(searchQuery.toLowerCase())
+          )
+        : sessionDoubts;
 
     const handleSubmitDoubt = () => {
         if (!question.trim() || !currentSession || !currentSession.teachingSteps || currentSession.teachingSteps.length === 0) {
@@ -44,7 +81,7 @@ export default function DoubtPanel({ sessionId, onDoubtRaised }: DoubtPanelProps
         // Safe bounds checking
         const safeStep = Math.max(0, Math.min(currentStep, currentSession.teachingSteps.length - 1));
         const stepData = currentSession.teachingSteps[safeStep] || null;
-        
+
         try {
             raiseDoubt(
                 question,
@@ -55,7 +92,12 @@ export default function DoubtPanel({ sessionId, onDoubtRaised }: DoubtPanelProps
         } catch (error) {
             console.error('Failed to raise doubt:', error);
         }
-        setQuestion('');
+        setQuestionState('');
+        try {
+            localStorage.removeItem(getDraftKey(sessionId));
+        } catch {
+            // ignore
+        }
         onDoubtRaised?.();
     };
 
@@ -90,21 +132,37 @@ export default function DoubtPanel({ sessionId, onDoubtRaised }: DoubtPanelProps
                         exit={{ height: 0, opacity: 0 }}
                         className="flex-1 min-h-0 flex flex-col overflow-hidden"
                     >
+                        {/* Search within doubts */}
+                        {sessionDoubts.length > 0 && (
+                            <div className="p-2 border-b border-gray-100 dark:border-slate-700">
+                                <div className="relative">
+                                    <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                                    <input
+                                        type="text"
+                                        value={searchQuery}
+                                        onChange={(e) => setSearchQuery(e.target.value)}
+                                        placeholder="Search doubts..."
+                                        className="w-full pl-8 pr-3 py-1.5 text-sm bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-purple-400"
+                                    />
+                                </div>
+                            </div>
+                        )}
                         {/* Previous doubts */}
                         <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden p-3 space-y-3">
-                            {sessionDoubts.length === 0 ? (
+                            {filteredDoubts.length === 0 ? (
                                 <div className="text-center py-6 text-gray-400 dark:text-slate-500">
                                     <HelpCircle className="w-10 h-10 mx-auto mb-2 opacity-50" />
-                                    <p className="text-sm">No doubts yet</p>
-                                    <p className="text-xs mt-1">Ask anything about the current topic!</p>
+                                    <p className="text-sm">{searchQuery.trim() ? 'No matching doubts' : 'No doubts yet'}</p>
+                                    <p className="text-xs mt-1">{searchQuery.trim() ? 'Try a different search' : 'Ask anything about the current topic!'}</p>
                                 </div>
                             ) : (
-                                sessionDoubts.map((doubt) => (
+                                filteredDoubts.map((doubt) => (
                                     <DoubtCard
                                         key={doubt.id}
                                         doubt={doubt}
                                         isActive={activeDoubt?.id === doubt.id}
                                         ttsEnabled={ttsEnabled}
+                                        subjectName={currentSession?.subjectName}
                                     />
                                 ))
                             )}
@@ -154,7 +212,7 @@ export default function DoubtPanel({ sessionId, onDoubtRaised }: DoubtPanelProps
 }
 
 // Individual doubt card component
-function DoubtCard({ doubt, isActive, ttsEnabled }: { doubt: Doubt; isActive: boolean; ttsEnabled: boolean }) {
+function DoubtCard({ doubt, isActive, ttsEnabled, subjectName }: { doubt: Doubt; isActive: boolean; ttsEnabled: boolean; subjectName?: string }) {
     const [showDetails, setShowDetails] = useState(isActive);
 
     const statusColors = {
@@ -218,6 +276,35 @@ function DoubtCard({ doubt, isActive, ttsEnabled }: { doubt: Doubt; isActive: bo
                                 </div>
                             </div>
 
+                            {/* Visual Aid - Always shown (Visual-Only Mode) */}
+                            <div className="space-y-2">
+                                <div className="flex items-center gap-2">
+                                    <Eye className="w-4 h-4 text-purple-500 shrink-0" />
+                                    <p className="text-xs font-medium text-gray-500 dark:text-slate-400">Visual Aid</p>
+                                </div>
+                                <div className="relative aspect-video w-full bg-slate-100 dark:bg-slate-900 rounded-lg overflow-hidden border border-gray-100 dark:border-slate-800 flex items-center justify-center p-4">
+                                    {(() => {
+                                        const VisualComp = getTopicVisual('', {
+                                            visualType: doubt.resolution.visualType,
+                                            visualPrompt: doubt.resolution.visualPrompt,
+                                            subjectName: subjectName
+                                        });
+                                        if (!VisualComp) return null;
+                                        return (
+                                            <VisualComp
+                                                isSpeaking={false}
+                                                isPaused={true}
+                                                stepId={doubt.id}
+                                                title="Visual Explanation"
+                                                visualType={doubt.resolution.visualType}
+                                                visualPrompt={doubt.resolution.visualPrompt}
+                                                topicName={subjectName || "Topic"}
+                                            />
+                                        );
+                                    })()}
+                                </div>
+                            </div>
+
                             {/* Examples */}
                             {doubt.resolution.examples && doubt.resolution.examples.length > 0 && (
                                 <div className="flex gap-2">
@@ -235,6 +322,8 @@ function DoubtCard({ doubt, isActive, ttsEnabled }: { doubt: Doubt; isActive: bo
                                     </div>
                                 </div>
                             )}
+
+
 
                             {/* Confirmation */}
                             {doubt.resolution.understandingConfirmed && (

@@ -61,13 +61,18 @@ export interface UserProfile {
     plan: SubscriptionPlan;
     onboardingCompleted: boolean;
 
-    // Professional info
-    profession: Profession | null;
-    subProfession: string | null;
+    // Curriculum Selection (New)
+    curriculumType?: 'school' | 'competitive' | null;
+    board?: SchoolBoard | null;
+    grade?: string | null;
+    exam?: ExamType | null;
+    subject?: string | null;
+    currentTopic?: string | null;
+    /** Competitive mode: include Previous Year Question Papers (last 10 years) in practice */
+    includePYQ?: boolean;
+
     experienceLevel: 'beginner' | 'intermediate' | 'advanced' | 'expert';
     verificationStatus: 'none' | 'pending' | 'verified';
-    subject?: string;
-    currentTopic?: string;
 
     // Learning profile
     learningStyle: LearningStyle;
@@ -80,33 +85,27 @@ export interface UserProfile {
     topicsCompleted: number;
     currentStreak: number;
     longestStreak: number;
+
+    /** Topic IDs the user bookmarked for quick access. */
+    favoriteTopicIds?: string[];
 }
 
 // ============================================
-// PROFESSION & CONTENT TYPES
+// CURRICULUM & CONTENT TYPES
 // ============================================
 
-export interface Profession {
-    id: string;
-    name: string;
-    icon: string;
-    description: string;
-    color: string;
-    subProfessions: SubProfession[];
-}
-
-export interface SubProfession {
-    id: string;
-    name: string;
-    description: string;
-    subjects: Subject[];
-}
+export type CurriculumType = 'school' | 'competitive';
+export type SchoolBoard = 'Telangana State Board' | 'Andhra Pradesh State Board' | 'CBSE' | 'ICSE';
+export type ExamType = 'JEE Main' | 'NEET' | 'EAMCET' | 'GATE' | 'IIT';
 
 export interface Subject {
     id: string;
     name: string;
     icon: string;
     topics: Topic[];
+    board?: SchoolBoard;
+    grade?: string;
+    exam?: ExamType;
 }
 
 export interface Topic {
@@ -119,6 +118,8 @@ export interface Topic {
     progress?: number;
     prerequisites?: string[];
     objectives?: string[];
+    visualType?: 'diagram' | 'animation' | '3d-model' | 'video-aid' | 'interactive' | 'technical';
+    visualPrompt?: string;
 }
 
 // ============================================
@@ -176,7 +177,8 @@ export interface TeachingStep {
     title: string;
     content: string;
     spokenContent: string;
-    visualType: 'diagram' | 'text' | 'animation' | 'quiz' | 'interactive' | '3d-model';
+    visualType: 'diagram' | 'text' | 'animation' | 'quiz' | 'interactive' | '3d-model' | 'technical';
+    visualPrompt?: string;
     visualData?: Record<string, unknown>;
     durationSeconds: number;
     completed: boolean;
@@ -203,13 +205,25 @@ export interface TeachingSession {
     progress: number;
     teachingSteps: TeachingStep[];
     doubts: Doubt[];
-    /** Professional domain context for strict domain isolation */
-    professionId?: string;
-    professionName?: string;
-    subProfessionId?: string;
-    subProfessionName?: string;
+
+    // Curriculum context
+    curriculumType?: CurriculumType;
+    board?: SchoolBoard;
+    grade?: string;
+    exam?: ExamType;
     subjectId?: string;
     subjectName?: string;
+    visualType?: string;
+    visualPrompt?: string;
+}
+
+export interface StepBookmark {
+    id: string;
+    topicId: string;
+    topicName: string;
+    stepIndex: number;
+    stepTitle: string;
+    createdAt: string;
 }
 
 export interface TeachingState {
@@ -250,6 +264,8 @@ export interface Doubt {
 
 export interface DoubtResolution {
     explanation: string;
+    visualType?: string;
+    visualPrompt?: string;
     visualAids?: string[];
     examples?: string[];
     quizQuestion?: QuizQuestion;
@@ -265,6 +281,8 @@ export interface ChatMessage {
     attachments?: Attachment[];
     /** True when AI failed or returned empty; show retry-friendly UI. */
     isError?: boolean;
+    /** User feedback on AI response for quality tracking. */
+    feedback?: 'helpful' | 'not_helpful' | null;
 }
 
 export interface Attachment {
@@ -288,6 +306,10 @@ export interface GeneratedNote {
     userDoubts: string[];
     createdAt: string;
     qualityScore?: number;
+    /** Pinned notes appear first in the list. */
+    pinned?: boolean;
+    /** Archived notes are hidden from the main list; show in "Archived" filter. */
+    archived?: boolean;
 }
 
 export interface NoteSection {
@@ -325,6 +347,9 @@ export interface Flashcard {
     hint?: string;
     difficulty: 'easy' | 'medium' | 'hard';
     tags: string[];
+    /** Optional deck for grouping; filter Review by deck. */
+    deckId?: string;
+    deckName?: string;
 
     // Spaced repetition
     nextReviewDate: string;
@@ -341,40 +366,60 @@ export interface QuizQuestion {
     options?: string[];
     correctAnswer: string | number;
     explanation: string;
+    visualType?: string;
+    visualPrompt?: string;
 }
 
 // ============================================
 // SETTINGS TYPES
 // ============================================
 
+export type AccentColor = 'purple' | 'blue' | 'green' | 'amber' | 'rose';
+
 export interface AppSettings {
     // Account
     language: string;
     timezone: string;
     theme: 'light' | 'dark' | 'system';
+    /** Optional: auto dark after hour (0-23). E.g. 20 = dark after 8pm. Only used when theme is 'system' or when theme is 'auto-time'. */
+    themeDarkAfterHour?: number;
+    /** User-picked accent for buttons/links. Default purple. */
+    accentColor?: AccentColor;
 
     // Notifications
     notifications: {
         studyReminders: boolean;
         reminderTime: string;
+        /** Per-day reminder times, e.g. { mon: '19:00', tue: '19:00' }. Overrides reminderTime when set. */
+        reminderSchedule?: Record<string, string>;
         goalAchievements: boolean;
         reviewReminders: boolean;
         emailDigest: 'none' | 'daily' | 'weekly';
+        /** Daily study goal in minutes (e.g. 20 or 30). 0 = off. */
+        dailyStudyGoalMinutes: number;
     };
 
     // Accessibility
     accessibility: {
         fontSize: 'small' | 'medium' | 'large' | 'xlarge';
+        /** Font family: system, serif, or dyslexia-friendly (OpenDyslexic-style). */
+        fontFamily?: 'system' | 'serif' | 'dyslexia';
+        /** Line spacing / reading density for notes, steps, chat. */
+        lineSpacing?: 'compact' | 'default' | 'comfortable';
         highContrast: boolean;
         reduceAnimations: boolean;
         textToSpeech: boolean;
         ttsSpeed: number;
         ttsVoice: string;
+        /** Show captions/subtitles synchronized with TTS. */
+        showCaptions?: boolean;
     };
 
     // Privacy
     privacy: {
         analyticsEnabled: boolean;
+        /** If true, send minimal error reports (no PII) for debugging and stability. */
+        errorReportingEnabled?: boolean;
         shareProgress: boolean;
         dataRetentionMonths: number;
     };
@@ -384,10 +429,17 @@ export interface AppSettings {
         personality: 'encouraging' | 'direct' | 'humorous' | 'formal';
         responseStyle: 'concise' | 'detailed' | 'interactive' | 'adaptive';
         analogiesEnabled: boolean;
-        clinicalExamplesEnabled: boolean;
         /** Preferred AI model for chat, doubts, and studio (notes/mind map/flashcards). Default: llama. */
         preferredAiModel?: 'llama' | 'mistral';
     };
+
+    /** Quiz behavior: when to show correct answer and explanation */
+    quiz?: {
+        showCorrectAnswer: 'after_each' | 'at_end';
+    };
+
+    /** Topic IDs the user asked to be notified when content is ready (coming-soon topics). */
+    notifyWhenTopicReady?: string[];
 }
 
 /** AI model type used by backend and frontend API. */
@@ -432,4 +484,135 @@ export interface ProgressMetrics {
     knowledgeRetention: number;
     weeklyHours: number[];
     streakDays: number;
+    totalXp: number;
+    level: number;
+}
+
+// ============================================
+// DASHBOARD / ROSTER TYPES (Admin & Teacher)
+// ============================================
+
+export interface Section {
+    id: string;
+    grade: string;
+    sectionLabel: string;
+    name?: string;
+}
+
+export interface RosterEntry {
+    sectionId: string;
+    studentId: string;
+    studentName?: string;
+}
+
+export interface TeacherSubjectAssignment {
+    teacherId: string;
+    teacherName: string;
+    subject: string;
+    sectionId: string;
+    sectionLabel?: string;
+    avgScore?: number;
+}
+
+export interface AdminTeacherSubjectRow {
+    teacherId: string;
+    teacherName: string;
+    subject: string;
+    section: string;
+    avgScore: number;
+}
+
+export interface AdminStudentTrendRow {
+    period: string;
+    avgScore: number;
+}
+
+export interface AdminCrossClassRow {
+    section: string;
+    subject: string;
+    avgScore: number;
+    trend: 'up' | 'down' | 'stable';
+}
+
+export interface AdminSystemicTopicRow {
+    topic: string;
+    sectionsWeak: number;
+    totalSections: number;
+    note: string;
+}
+
+export interface TeacherTopicWeaknessRow {
+    topicId: string;
+    name: string;
+    weakCount: number;
+    total: number;
+    pctWeak: number;
+}
+
+export interface TeacherStudentRow {
+    id: string;
+    name: string;
+    weakSubjects: string[];
+    weakTopics: string[];
+    errorPattern: 'conceptual' | 'careless';
+    level?: number;
+    totalXp?: number;
+}
+
+export interface TeacherHeatmapRow {
+    studentName: string;
+    scores: number[];
+}
+
+// ============================================
+// EXTENDED ANALYTICS TYPES
+// ============================================
+
+export interface TeacherAnalyticsSummary {
+    avgScore: number;
+    engagementScore: number; // 0-100
+    participationRate: number; // 0-100
+    assignmentCompletion: number; // 0-100
+    trend: 'improving' | 'declining' | 'stable';
+}
+
+export interface TeacherNudge {
+    id: string;
+    type: 'warning' | 'celebration' | 'suggestion';
+    message: string;
+    priority: 'low' | 'medium' | 'high';
+    actionLabel?: string;
+}
+export interface StudentAnalyticsDetail extends TeacherStudentRow {
+    attendance: number;
+    lastActive: string;
+    scoreTrend: number[];
+    topicMastery: { topicId: string; name: string; score: number }[];
+    engagementTrend: number[];
+    level?: number;
+    totalXp?: number;
+}
+
+export interface AdminSubjectSummary {
+    subject: string;
+    avgScore: number;
+    studentsCount: number;
+    teachersCount: number;
+    completionPercent: number;
+    curriculumCoverage: number; // 0-100
+    teacherEfficiency: number; // 0-100
+    systemicConcerns: number; // Count of identified systemic issues
+    systemicIssue?: string;
+    avgLevel?: number;
+    totalXp?: number;
+}
+
+export interface TeacherEffectiveness {
+    teacherId: string;
+    teacherName: string;
+    avgScore: number;
+    improvementTrend: number; // percentage points change
+    classEngagement: number;
+    participationRate: number;
+    workloadIndex: number; // 0-100
 }

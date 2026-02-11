@@ -18,10 +18,7 @@ dependencies:
   # Navigation
   go_router: ^17.0.1
   
-  # Supabase
-  supabase_flutter: ^2.6.0
-  
-  # OAuth
+  # OAuth (optional; app uses guest/demo entry)
   google_sign_in: ^6.2.1
   sign_in_with_apple: ^7.0.1
   
@@ -85,7 +82,7 @@ flutter:
     - assets/animations/
     - assets/localization/
   
-  # TODO: Add Inter font files to assets/fonts/ directory
+  # Optional: Add Inter font files to assets/fonts/ and uncomment below (see README.md).
   # fonts:
   #   - family: Inter
   #     fonts:

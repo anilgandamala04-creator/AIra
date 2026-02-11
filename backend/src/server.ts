@@ -1,36 +1,55 @@
 import express, { Request, Response, NextFunction } from 'express';
 import cors from 'cors';
+import helmet from 'helmet';
+import compression from 'compression';
 import dotenv from 'dotenv';
 import path from 'path';
 import { aiService, getAvailableModels, AI_PROMPT_MAX_LENGTH } from './services/aiService';
-import { verifyIdToken } from './services/firebase';
 
-// Load backend/.env first, then parent (AIra/.env) so one .env can drive both frontend and backend
+// Load backend/.env first, then parent (AIra/.env) so one .env can drive both frontend and backend.
+// When run via "npm run dev:backend" from project root, cwd is AIra/backend so parent is AIra/.env.
 dotenv.config();
 dotenv.config({ path: path.resolve(process.cwd(), '..', '.env') });
 
-// In-memory rate limit (per uid); use Firestore or Redis in multi-instance deployments
+// In-memory rate limit (per uid); use Redis or similar in multi-instance deployments
 const rateLimitMap = new Map<string, { count: number; windowStart: number }>();
 const RATE_WINDOW_MS = 60000;
 const RATE_MAX_REQUESTS = 30;
+
+// Model status caching (TTL: 5 minutes)
+let cachedModels: { llama: boolean; mistral: boolean } | null = null;
+let lastModelCheck = 0;
+const MODEL_CACHE_TTL = 300_000;
+
+function getAvailableModelsCached() {
+    const now = Date.now();
+    if (cachedModels && (now - lastModelCheck < MODEL_CACHE_TTL)) {
+        return cachedModels;
+    }
+    const models = getAvailableModels();
+    cachedModels = models;
+    lastModelCheck = now;
+    return models;
+}
+
 function getRateLimitKey(uid: string): string {
-  return uid;
+    return uid;
 }
 function checkRateLimitInMemory(uid: string): boolean {
-  const now = Date.now();
-  const key = getRateLimitKey(uid);
-  const entry = rateLimitMap.get(key);
-  if (!entry) {
-    rateLimitMap.set(key, { count: 1, windowStart: now });
+    const now = Date.now();
+    const key = getRateLimitKey(uid);
+    const entry = rateLimitMap.get(key);
+    if (!entry) {
+        rateLimitMap.set(key, { count: 1, windowStart: now });
+        return true;
+    }
+    if (now - entry.windowStart > RATE_WINDOW_MS) {
+        rateLimitMap.set(key, { count: 1, windowStart: now });
+        return true;
+    }
+    if (entry.count >= RATE_MAX_REQUESTS) return false;
+    entry.count++;
     return true;
-  }
-  if (now - entry.windowStart > RATE_WINDOW_MS) {
-    rateLimitMap.set(key, { count: 1, windowStart: now });
-    return true;
-  }
-  if (entry.count >= RATE_MAX_REQUESTS) return false;
-  entry.count++;
-  return true;
 }
 
 const app = express();
@@ -43,15 +62,12 @@ const getAllowedOrigins = (): string[] => {
         // Support comma-separated URLs
         return frontendUrl.split(',').map(url => url.trim());
     }
-    // Default origins: include Firebase Hosting URLs and all common local dev origins
+    // Default origins: production frontend URLs and local dev
     return [
-        // Firebase Hosting (production)
+        // Production (add your frontend URLs here)
         'https://aira-learning-a3884.web.app',
-        'https://aira-learning-a3884.firebaseapp.com',
         'https://aira-education-c822b.web.app',
-        'https://aira-education-c822b.firebaseapp.com',
         'https://airaedtech.web.app',
-        'https://airaedtech.firebaseapp.com',
         // Local development (Vite uses 5173 by default; may use 5174–5176 if port busy)
         'http://localhost:3000',
         'http://localhost:5173',
@@ -77,11 +93,22 @@ const corsOptions = {
             return callback(null, true);
         }
         const allowedOrigins = getAllowedOrigins();
-        if (allowedOrigins.includes(origin) || process.env.NODE_ENV === 'development') {
-            callback(null, true);
-        } else {
-            callback(new Error('Not allowed by CORS'));
+        if (allowedOrigins.includes(origin)) {
+            return callback(null, true);
         }
+        // In development, allow localhost, 127.0.0.1, and private IPs (same-network mobile testing)
+        const isDev = process.env.NODE_ENV === 'development' || !process.env.NODE_ENV;
+        try {
+            const url = new URL(origin);
+            const isLocal = url.hostname === 'localhost' || url.hostname === '127.0.0.1';
+            const isPrivateIP = /^10\.|^172\.(1[6-9]|2\d|3[01])\.|^192\.168\./.test(url.hostname);
+            if (isDev && (isLocal || isPrivateIP)) {
+                return callback(null, true);
+            }
+        } catch {
+            // invalid origin
+        }
+        callback(new Error('Not allowed by CORS'));
     },
     credentials: true,
     methods: ['GET', 'POST', 'OPTIONS'],
@@ -91,58 +118,64 @@ const corsOptions = {
     maxAge: 86400, // 24 hours
 };
 
+app.disable('x-powered-by');
+app.use(helmet({
+    contentSecurityPolicy: process.env.NODE_ENV === 'production' ? true : false, // Fixed: use boolean, not undefined
+}));
+app.use(compression());
 app.use(cors(corsOptions));
 app.use(express.json({ limit: '10mb' }));
 
+// Structured logging helper
+const log = (level: 'info' | 'warn' | 'error', message: string, data?: any) => {
+    const timestamp = new Date().toISOString();
+    if (process.env.NODE_ENV === 'production') {
+        process.stdout.write(JSON.stringify({ timestamp, level, message, ...data }) + '\n');
+    } else {
+        const dataStr = data ? ` | ${JSON.stringify(data)}` : '';
+        console.log(`[${timestamp}] ${level.toUpperCase()}: ${message}${dataStr}`);
+    }
+};
+
 // Request logging middleware
 app.use((req: Request, res: Response, next: NextFunction) => {
-    const timestamp = new Date().toISOString();
-    console.log(`[${timestamp}] ${req.method} ${req.path}`);
+    const start = Date.now();
+    res.on('finish', () => {
+        const duration = Date.now() - start;
+        log('info', 'Request processed', {
+            method: req.method,
+            path: req.path,
+            status: res.statusCode,
+            duration: `${duration}ms`,
+            ip: req.ip,
+            uid: (req as any).uid || 'unknown'
+        });
+    });
     next();
 });
 
-// Firebase Authentication middleware (allows guest access with rate limiting)
-async function verifyFirebaseAuth(req: Request, res: Response, next: NextFunction): Promise<void> {
-    const authHeader = req.headers.authorization;
-    const clientIp = (req.ip || req.headers['x-forwarded-for'] || 'unknown').toString();
-
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-        (req as any).uid = `guest_${clientIp}`;
-        (req as any).isGuest = true;
-        return next();
-    }
-
-    const idToken = authHeader.split('Bearer ')[1];
-    if (!idToken) {
-        (req as any).uid = `guest_${clientIp}`;
-        (req as any).isGuest = true;
-        return next();
-    }
-
-    try {
-        const decoded = await verifyIdToken(idToken);
-        if (decoded) {
-            (req as any).uid = decoded.uid;
-            (req as any).isGuest = false;
-            (req as any).user = decoded;
-        } else {
-            (req as any).uid = `guest_${clientIp}`;
-            (req as any).isGuest = true;
-        }
-    } catch (err: any) {
-        console.error('Firebase Auth verification error:', err?.message || err);
-        (req as any).uid = `guest_${clientIp}`;
-        (req as any).isGuest = true;
-    }
+// Auth middleware: no external provider; use guest identity for rate limiting.
+function authMiddleware(req: Request, res: Response, next: NextFunction): void {
+    const cfIp = req.headers['cf-connecting-ip'] || req.headers['x-forwarded-for'];
+    const ipRaw = cfIp || req.ip || req.socket?.remoteAddress || 'unknown';
+    const ipString = Array.isArray(ipRaw) ? ipRaw[0] : ipRaw;
+    const ipParts = String(ipString).split(',');
+    const clientIp = (ipParts[0] || 'unknown').trim();
+    (req as any).uid = `guest_${clientIp}`;
+    (req as any).isGuest = true;
     next();
 }
 
 // Rate limiting middleware (in-memory)
 function checkRateLimit(req: Request, res: Response, next: NextFunction): void {
     const uid = (req as any).uid;
-    if (!uid) return next();
+    if (!uid) {
+        log('warn', 'Missing UID in rate limit check');
+        return next();
+    }
 
     if (!checkRateLimitInMemory(uid)) {
+        res.setHeader('Retry-After', '60');
         res.status(429).json({
             error: 'Rate limit exceeded',
             message: `Maximum ${RATE_MAX_REQUESTS} requests per minute. Please try again later.`
@@ -152,19 +185,18 @@ function checkRateLimit(req: Request, res: Response, next: NextFunction): void {
     next();
 }
 
-// Request timeout middleware (60 seconds default, configurable via AI_REQUEST_TIMEOUT_MS)
-const REQUEST_TIMEOUT_MS = Math.max(
-    5000, // Minimum 5 seconds
-    parseInt(process.env.AI_REQUEST_TIMEOUT_MS || process.env.REQUEST_TIMEOUT_MS || '60000', 10)
-);
+// Request timeout middleware (120s default for long teaching content, configurable via AI_REQUEST_TIMEOUT_MS)
+const parsedTimeout = parseInt(process.env.AI_REQUEST_TIMEOUT_MS || process.env.REQUEST_TIMEOUT_MS || '120000', 10);
+const REQUEST_TIMEOUT_MS = Math.max(5000, Number.isFinite(parsedTimeout) ? parsedTimeout : 120000);
 
 // Enhanced timeout handler with proper cleanup
 const timeoutHandler = (req: express.Request, res: express.Response, next: express.NextFunction) => {
     const timeout = setTimeout(() => {
         if (!res.headersSent) {
+            res.setHeader('Retry-After', '30');
             res.status(504).json({
                 error: 'Request timeout',
-                message: `Request exceeded timeout of ${REQUEST_TIMEOUT_MS}ms`
+                message: `Request exceeded timeout of ${REQUEST_TIMEOUT_MS}ms. You can try again shortly.`
             });
         }
     }, REQUEST_TIMEOUT_MS);
@@ -186,9 +218,10 @@ function isValidationError(message: string): boolean {
     );
 }
 
-app.get('/health', (req, res) => {
+app.get('/health', (_req, res) => {
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
     try {
-        const models = getAvailableModels();
+        const models = getAvailableModelsCached();
         res.json({
             status: 'ok',
             timestamp: new Date().toISOString(),
@@ -198,17 +231,18 @@ app.get('/health', (req, res) => {
             version: '1.0.0',
         });
     } catch (error) {
-        console.error('Health check error:', error);
+        log('error', 'Health check failed', { error: error instanceof Error ? error.message : 'Unknown' });
         res.status(500).json({
             status: 'error',
             error: 'Health check failed',
+            timestamp: new Date().toISOString(),
         });
     }
 });
 
-app.post('/api/resolve-doubt', verifyFirebaseAuth, checkRateLimit, async (req, res) => {
+app.post('/api/resolve-doubt', authMiddleware, checkRateLimit, async (req, res) => {
     const startTime = Date.now();
-    const { question, context, model } = req.body;
+    const { question, context, curriculumContext, model } = req.body;
 
     if (question === undefined || question === null) {
         return res.status(400).json({ error: 'Question is required' });
@@ -219,15 +253,18 @@ app.post('/api/resolve-doubt', verifyFirebaseAuth, checkRateLimit, async (req, r
 
     const modelType = (model === 'mistral' ? 'mistral' : 'llama') as 'llama' | 'mistral';
     try {
-        const resolution = await aiService.resolveDoubt(question, context || 'General Education', modelType);
+        const resolution = await aiService.resolveDoubt(question, context || 'General Education', curriculumContext, modelType);
+        if (res.headersSent) return;
         const latency = Date.now() - startTime;
         console.log(`[Resolve Doubt] Success (${latency}ms) - Model: ${modelType}`);
         res.json(resolution);
     } catch (error) {
+        if (res.headersSent) return;
         const latency = Date.now() - startTime;
         const message = error instanceof Error ? error.message : 'Failed to resolve doubt';
         if (isValidationError(message)) {
-            return res.status(400).json({ error: message });
+            res.status(400).json({ error: message });
+            return;
         }
         console.error(`[Resolve Doubt] Error (${latency}ms):`, error);
         res.status(500).json({
@@ -237,7 +274,7 @@ app.post('/api/resolve-doubt', verifyFirebaseAuth, checkRateLimit, async (req, r
     }
 });
 
-app.post('/api/generate-content', verifyFirebaseAuth, checkRateLimit, async (req, res) => {
+app.post('/api/generate-content', authMiddleware, checkRateLimit, async (req, res) => {
     const startTime = Date.now();
     const { prompt, model } = req.body;
 
@@ -251,14 +288,17 @@ app.post('/api/generate-content', verifyFirebaseAuth, checkRateLimit, async (req
     const modelType = (model === 'mistral' ? 'mistral' : 'llama') as 'llama' | 'mistral';
     try {
         const content = await aiService.generateResponse(prompt, modelType);
+        if (res.headersSent) return;
         const latency = Date.now() - startTime;
         console.log(`[Generate Content] Success (${latency}ms) - Model: ${modelType}, Prompt length: ${typeof prompt === 'string' ? prompt.length : 0}`);
         res.json({ content, model: modelType });
     } catch (error) {
+        if (res.headersSent) return;
         const latency = Date.now() - startTime;
         const message = error instanceof Error ? error.message : 'Failed to generate content';
         if (isValidationError(message)) {
-            return res.status(400).json({ error: message });
+            res.status(400).json({ error: message });
+            return;
         }
         console.error(`[Generate Content] Error (${latency}ms):`, error);
         res.status(500).json({
@@ -268,21 +308,45 @@ app.post('/api/generate-content', verifyFirebaseAuth, checkRateLimit, async (req
     }
 });
 
-app.post('/api/generate-teaching-content', verifyFirebaseAuth, checkRateLimit, async (req, res) => {
+app.post('/api/generate-teaching-content', authMiddleware, checkRateLimit, async (req, res) => {
     const startTime = Date.now();
-    const { topic, model } = req.body;
-
-    if (!topic) {
-        return res.status(400).json({ error: 'Topic is required' });
-    }
+    const { topic, prompt: fullPrompt, curriculumContext, model } = req.body;
 
     const modelType = (model === 'mistral' ? 'mistral' : 'llama') as 'llama' | 'mistral';
+
+    if (fullPrompt && typeof fullPrompt === 'string' && fullPrompt.trim().length > 0) {
+        // Frontend sent a full prompt (rich curriculum, 45+ min, etc.) – use it directly
+        try {
+            const content = await aiService.generateTeachingContentFromPrompt(fullPrompt.trim(), modelType);
+            if (res.headersSent) return;
+            const latency = Date.now() - startTime;
+            console.log(`[Generate Teaching Content] Success from prompt (${latency}ms) - Model: ${modelType}`);
+            res.json(content);
+        } catch (error) {
+            if (res.headersSent) return;
+            const latency = Date.now() - startTime;
+            console.error(`[Generate Teaching Content] Error (${latency}ms):`, error);
+            const message = error instanceof Error ? error.message : 'Failed to generate teaching content';
+            res.status(500).json({
+                error: 'Failed to generate teaching content',
+                message: process.env.NODE_ENV === 'development' ? message : undefined,
+            });
+        }
+        return;
+    }
+
+    if (!topic) {
+        return res.status(400).json({ error: 'Topic or prompt is required' });
+    }
+
     try {
-        const content = await aiService.generateTeachingContent(topic, modelType);
+        const content = await aiService.generateTeachingContent(topic, curriculumContext, modelType);
+        if (res.headersSent) return;
         const latency = Date.now() - startTime;
-        console.log(`[Generate Teaching Content] Success (${latency}ms) - Model: ${modelType}, Topic: ${topic}`);
+        console.log(`[Generate Teaching Content] Success (${latency}ms) - Model: ${modelType}, Topic: ${String(topic).slice(0, 80)}`);
         res.json(content);
     } catch (error) {
+        if (res.headersSent) return;
         const latency = Date.now() - startTime;
         console.error(`[Generate Teaching Content] Error (${latency}ms):`, error);
         const message = error instanceof Error ? error.message : 'Failed to generate teaching content';
@@ -293,9 +357,9 @@ app.post('/api/generate-teaching-content', verifyFirebaseAuth, checkRateLimit, a
     }
 });
 
-app.post('/api/generate-quiz', verifyFirebaseAuth, checkRateLimit, async (req, res) => {
+app.post('/api/generate-quiz', authMiddleware, checkRateLimit, async (req, res) => {
     const startTime = Date.now();
-    const { topic, context, model } = req.body;
+    const { topic, context, curriculumContext, model } = req.body;
 
     if (!topic) {
         return res.status(400).json({ error: 'Topic is required' });
@@ -303,11 +367,13 @@ app.post('/api/generate-quiz', verifyFirebaseAuth, checkRateLimit, async (req, r
 
     const modelType = (model === 'mistral' ? 'mistral' : 'llama') as 'llama' | 'mistral';
     try {
-        const quiz = await aiService.generateQuiz(topic, context || 'General Education', modelType);
+        const quiz = await aiService.generateQuiz(topic, context || 'General Education', curriculumContext, modelType);
+        if (res.headersSent) return;
         const latency = Date.now() - startTime;
         console.log(`[Generate Quiz] Success (${latency}ms) - Model: ${modelType}, Topic: ${topic}`);
         res.json(quiz);
     } catch (error) {
+        if (res.headersSent) return;
         const latency = Date.now() - startTime;
         console.error(`[Generate Quiz] Error (${latency}ms):`, error);
         const message = error instanceof Error ? error.message : 'Failed to generate quiz';
@@ -336,18 +402,7 @@ app.use((req, res) => {
 });
 
 // Export middleware functions
-export { verifyFirebaseAuth, checkRateLimit };
-
-// Graceful shutdown handler
-process.on('SIGTERM', () => {
-    console.log('SIGTERM received, shutting down gracefully...');
-    process.exit(0);
-});
-
-process.on('SIGINT', () => {
-    console.log('SIGINT received, shutting down gracefully...');
-    process.exit(0);
-});
+export { authMiddleware, checkRateLimit };
 
 // Handle unhandled promise rejections
 process.on('unhandledRejection', (reason, promise) => {
@@ -365,7 +420,7 @@ const server = app.listen(port, () => {
     console.log(`📡 Health check: http://localhost:${port}/health`);
     console.log(`🔧 Environment: ${process.env.NODE_ENV || 'development'}`);
     console.log(`⏱️  Request timeout: ${REQUEST_TIMEOUT_MS}ms`);
-    const models = getAvailableModels();
+    const models = getAvailableModelsCached();
     console.log(`🤖 Available models: LLaMA=${models.llama ? '✓' : '✗'}, Mistral=${models.mistral ? '✓' : '✗'}`);
     console.log(`🌐 Allowed origins: ${getAllowedOrigins().join(', ')}\n`);
 
@@ -388,5 +443,12 @@ const gracefulShutdown = () => {
     }, 10000);
 };
 
-process.on('SIGTERM', gracefulShutdown);
-process.on('SIGINT', gracefulShutdown);
+// Graceful shutdown: close server then exit (no immediate exit so server can drain)
+process.on('SIGTERM', () => {
+    console.log('SIGTERM received, shutting down gracefully...');
+    gracefulShutdown();
+});
+process.on('SIGINT', () => {
+    console.log('SIGINT received, shutting down gracefully...');
+    gracefulShutdown();
+});

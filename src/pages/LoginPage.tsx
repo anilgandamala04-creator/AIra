@@ -1,15 +1,26 @@
 import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { useTranslation } from 'react-i18next';
 import { useShallow } from 'zustand/react/shallow';
+import { GraduationCap, ClipboardCheck, Shield, Mail } from 'lucide-react';
 import { useAuthStore } from '../stores/authStore';
+import type { UserRole } from '../types';
+import AuthModal from '../components/common/AuthModal';
 import { useUserStore } from '../stores/userStore';
 import { useSettingsStore } from '../stores/settingsStore';
-import { toast } from '../stores/toastStore';
-import { validateEmail, validateRequired } from '../utils/validation';
-import { TRANSITION_DEFAULT, feedbackVariants } from '../utils/animations';
+import { TRANSITION_DEFAULT } from '../utils/animations';
+import { needsOnboarding } from '../utils/onboarding';
 import { MAIN_CONTENT_ID } from '../constants/layout';
+
+/**
+ * Login Page — Three Login Patterns (Strict Separation)
+ *
+ * Role      | Primary Goal           | UI Pattern
+ * ----------|------------------------|--------------------------------------
+ * Student   | Learn / Practice       | Content-first, immersive
+ * Teacher   | Diagnose & Improve     | Analytics-first
+ * Admin     | Monitor & Govern       | Oversight dashboards
+ */
 
 /**
  * AI Tutor Emoji Animation Specification (Login Screen)
@@ -131,17 +142,17 @@ function LoginAvatar({ reduceAnimations }: { reduceAnimations: boolean }) {
 
     // Gentle Floating: Slow and continuous, smooth easing (no sharp turns)
     // Feels like calmly "breathing" or floating in the clouds
-    const floatTransition = { 
-        duration: FLOAT_DURATION, 
-        repeat: Infinity, 
+    const floatTransition = {
+        duration: FLOAT_DURATION,
+        repeat: Infinity,
         ease: [0.4, 0, 0.6, 1] as const // Smooth easing - no sharp turns
     };
-    
+
     // Soft Glow Pulse: Pulse speed slower than floating motion
     // Creates warmth and sense of presence, not attention-grabbing
-    const glowTransition = { 
-        duration: GLOW_DURATION, 
-        repeat: Infinity, 
+    const glowTransition = {
+        duration: GLOW_DURATION,
+        repeat: Infinity,
         ease: [0.45, 0, 0.55, 1] as const // Smooth, gentle pulse
     };
 
@@ -152,15 +163,15 @@ function LoginAvatar({ reduceAnimations }: { reduceAnimations: boolean }) {
                 reduceAnimations
                     ? undefined
                     : microBounce === 'settle'
-                      ? { y: [0, MICRO_BOUNCE_DISTANCE, 0] } // Extremely subtle - tiny bounce
-                      : undefined
+                        ? { y: [0, MICRO_BOUNCE_DISTANCE, 0] } // Extremely subtle - tiny bounce
+                        : undefined
             }
             transition={
                 reduceAnimations
                     ? { duration: 0 }
                     : microBounce === 'settle'
-                      ? { duration: MICRO_BOUNCE_DURATION, ease: [0.25, 0.1, 0.25, 1] } // Smooth settle-in
-                      : { duration: 0 }
+                        ? { duration: MICRO_BOUNCE_DURATION, ease: [0.25, 0.1, 0.25, 1] } // Smooth settle-in
+                        : { duration: 0 }
             }
         >
             {/* Soft Glow Pulse: Circular glow/halo around emoji
@@ -283,86 +294,49 @@ function Sparkle({ className, delay = 0, reduceAnimations }: { className?: strin
 }
 
 export default function LoginPage() {
-    const { t } = useTranslation();
     const navigate = useNavigate();
     const reduceAnimations = Boolean(useSettingsStore(useShallow((state) => state.settings?.accessibility?.reduceAnimations)));
-    const {
-        loginWithGoogle,
-        loginWithApple,
-        loginWithEmail,
-        signUpWithEmail,
-        isLoading,
-        isAuthenticated,
-    } = useAuthStore();
+    const { setPendingLoginRole, continueAsGuest, isAuthenticated, isLoading } = useAuthStore();
+    const [authModalRole, setAuthModalRole] = useState<UserRole | null>(null);
 
-    // Preload OnboardingPage module when login page mounts
-    // Dashboard is embedded in Profile panel, not a separate page
-    useEffect(() => {
-        const preloadModules = async () => {
-            try {
-                await import('../pages/OnboardingPage');
-            } catch (error) {
-                console.warn('Failed to preload pages:', error);
-                // Non-blocking - navigation will still work with lazy loading
-            }
-        };
-        preloadModules();
-    }, []);
 
-    // Helper function to determine if user is new and should go to onboarding
-    const shouldRedirectToOnboarding = (user: ReturnType<typeof useAuthStore.getState>['user']): boolean => {
-        if (!user) return false;
-        
-        // Check if user was created recently (within last 30 seconds for better reliability)
-        if (user.createdAt) {
-            const createdTime = new Date(user.createdAt).getTime();
-            const now = new Date().getTime();
-            const timeSinceCreation = now - createdTime;
-            // Consider user new if created within last 30 seconds
-            if (timeSinceCreation < 30000) {
-                return true;
-            }
-        }
-        
-        // Also check if user has no profile data (indicates new user)
-        // This will be checked by ProtectedRoute, but we can also check here
-        return false;
-    };
 
-    // Redirect already-authenticated users (e.g. OAuth redirect, or visiting /login while logged in)
-    // ENFORCES STRICT LINEAR FLOW: Must complete onboarding before accessing any page
-    // Only redirect if not currently processing a login (to avoid race conditions)
+    // Redirect already-authenticated users by role: Teacher → /teacher, Admin → /admin, Student → onboarding or Main OS
     useEffect(() => {
         if (!isLoading && isAuthenticated) {
-            // Small delay to ensure all state updates are complete
-            const timer = setTimeout(async () => {
+            const timer = setTimeout(() => {
                 const user = useAuthStore.getState().user;
-                const profile = useUserStore.getState().profile;
-                const onboardingStep = useUserStore.getState().onboardingStep;
-                
-                if (user) {
-                    // STRICT ONBOARDING ENFORCEMENT: Check if onboarding is needed
-                    // All required steps must be completed: profession, subProfession, subject, currentTopic
-                    const needsOnboarding = 
-                        onboardingStep >= 0 || 
-                        !profile?.profession || 
-                        !profile?.subProfession || 
-                        !profile?.subject || 
-                        !profile?.currentTopic;
+                const state = useUserStore.getState();
+                const role = user?.role ?? 'student';
 
-                    if (needsOnboarding) {
-                        // User must complete onboarding - redirect to onboarding
-                        navigate('/onboarding', { replace: true });
+                if (role === 'teacher') {
+                    navigate('/teacher', { replace: true });
+                    return;
+                }
+                if (role === 'admin') {
+                    navigate('/admin', { replace: true });
+                    return;
+                }
+
+                // Student flow: Main OS Home first; no teaching before mode selection (same check as App)
+                const needs = needsOnboarding({
+                    onboardingStep: state.onboardingStep,
+                    curriculumType: state.curriculumType,
+                    selectedBoard: state.selectedBoard,
+                    selectedGrade: state.selectedGrade,
+                    selectedExam: state.selectedExam,
+                    selectedSubject: state.selectedSubject,
+                    profile: state.profile,
+                });
+
+                if (needs) {
+                    navigate('/', { replace: true });
+                } else {
+                    const topicId = state.profile?.currentTopic;
+                    if (topicId) {
+                        navigate(`/learn/${topicId}`, { replace: true });
                     } else {
-                        // Onboarding complete - redirect to Main OS Screen for selected topic
-                        // This enforces the exact flow: Login → Onboarding → Main OS Screen
-                        const topicId = profile?.currentTopic;
-                        if (topicId) {
-                            navigate(`/learn/${topicId}`, { replace: true });
-                        } else {
-                            // Fallback: if no topic (shouldn't happen), redirect to onboarding
-                            navigate('/onboarding', { replace: true });
-                        }
+                        navigate('/', { replace: true });
                     }
                 }
             }, 150);
@@ -370,198 +344,33 @@ export default function LoginPage() {
         }
     }, [isLoading, isAuthenticated, navigate]);
 
-    // Listen for OAuth redirect success events
-    // ENFORCES STRICT LINEAR FLOW: Must complete onboarding before accessing any page
-    useEffect(() => {
-        const handleRedirectSuccess = async (event: CustomEvent) => {
-            const user = event.detail?.user;
-            if (user) {
-                const profile = useUserStore.getState().profile;
-                const onboardingStep = useUserStore.getState().onboardingStep;
-                
-                // STRICT ONBOARDING ENFORCEMENT: Check if onboarding is needed
-                // All required steps must be completed: profession, subProfession, subject, currentTopic
-                const needsOnboarding = 
-                    onboardingStep >= 0 || 
-                    !profile?.profession || 
-                    !profile?.subProfession || 
-                    !profile?.subject || 
-                    !profile?.currentTopic;
-
-                if (needsOnboarding) {
-                    // User must complete onboarding - redirect to onboarding
-                    navigate('/onboarding', { replace: true });
-                } else {
-                    // Onboarding complete - redirect to Main OS Screen for selected topic
-                    // This enforces the exact flow: Login → Onboarding → Main OS Screen
-                    const topicId = profile?.currentTopic;
-                    if (topicId) {
-                        navigate(`/learn/${topicId}`, { replace: true });
-                    } else {
-                        // Fallback: if no topic (shouldn't happen), redirect to onboarding
-                        navigate('/onboarding', { replace: true });
-                    }
-                }
-            }
-        };
-
-        // Listen for login success events (popup flows)
-        const handleLoginSuccess = async (event: CustomEvent) => {
-            const user = event.detail?.user;
-            if (user) {
-                const isNewUser = shouldRedirectToOnboarding(user);
-                if (isNewUser) {
-                    navigate('/onboarding', { replace: true });
-                } else {
-                    // For existing users, go to active session or curriculum, not dashboard
-                    const { getDefaultRedirectPath } = await import('../utils/navigation');
-                    const redirectPath = getDefaultRedirectPath();
-                    navigate(redirectPath, { replace: true });
-                }
-            }
-        };
-
-        // Listen for signup success events (new users always go to onboarding)
-        const handleSignupSuccess = async (event: CustomEvent) => {
-            const { isNewUser } = event.detail || {};
-            if (isNewUser) {
-                navigate('/onboarding', { replace: true });
-            } else {
-                // For existing users, go to active session or curriculum, not dashboard
-                const { getDefaultRedirectPath } = await import('../utils/navigation');
-                const redirectPath = getDefaultRedirectPath();
-                navigate(redirectPath, { replace: true });
-            }
-        };
-
-        const redirectHandler = (event: Event) => {
-            handleRedirectSuccess(event as CustomEvent);
-        };
-        const loginHandler = (event: Event) => {
-            handleLoginSuccess(event as CustomEvent);
-        };
-        const signupHandler = (event: Event) => {
-            handleSignupSuccess(event as CustomEvent);
-        };
-
-        window.addEventListener('auth:redirect-success', redirectHandler);
-        window.addEventListener('auth:login-success', loginHandler);
-        window.addEventListener('auth:signup-success', signupHandler);
-        
-        return () => {
-            window.removeEventListener('auth:redirect-success', redirectHandler);
-            window.removeEventListener('auth:login-success', loginHandler);
-            window.removeEventListener('auth:signup-success', signupHandler);
-        };
-    }, [navigate]);
-
-    const [showEmailForm, setShowEmailForm] = useState(false);
-    const [isSignUp, setIsSignUp] = useState(false);
-    const [email, setEmail] = useState('');
-    const [password, setPassword] = useState('');
-    const [name, setName] = useState('');
-    const [error, setError] = useState<string | null>(null);
-    const [authErrorCode, setAuthErrorCode] = useState<string | null>(null);
-
-    const handleGoogleLogin = async () => {
-        try {
-            setError(null);
-            setAuthErrorCode(null);
-            await loginWithGoogle();
-            // Navigation is now handled by event listeners in useEffect
-            // This ensures consistent navigation behavior across all auth methods
-        } catch (err) {
-            const errorMessage = err instanceof Error ? err.message : 'Failed to sign in with Google. Please try again.';
-            const code = (err as { code?: string })?.code ?? null;
-            setError(errorMessage);
-            setAuthErrorCode(code);
-            console.error('Google login error:', err);
-            // Don't navigate on error - user should stay on login page to retry
-        }
-    };
-
-    const handleAppleLogin = async () => {
-        try {
-            setError(null);
-            setAuthErrorCode(null);
-            await loginWithApple();
-            // Navigation is now handled by event listeners in useEffect
-            // This ensures consistent navigation behavior across all auth methods
-        } catch (err) {
-            const errorMessage = err instanceof Error ? err.message : 'Failed to sign in with Apple. Please try again.';
-            const code = (err as { code?: string })?.code ?? null;
-            setError(errorMessage);
-            setAuthErrorCode(code);
-            console.error('Apple login error:', err);
-            // Don't navigate on error - user should stay on login page to retry
-        }
-    };
-
-    const handleEmailSubmit = async (e: React.FormEvent) => {
-        e.preventDefault();
-        setError(null);
-        setAuthErrorCode(null);
-
-        const emailValidation = validateEmail(email);
-        if (!emailValidation.isValid) {
-            setError(emailValidation.error || 'Invalid email');
-            toast.error(emailValidation.error || 'Invalid email');
-            return;
-        }
-
-        const passwordValidation = validateRequired(password, 'Password');
-        if (!passwordValidation.isValid) {
-            setError(passwordValidation.error || 'Password is required');
-            toast.error(passwordValidation.error || 'Password is required');
-            return;
-        }
-
-        if (isSignUp) {
-            const nameValidation = validateRequired(name.trim(), 'Name');
-            if (!nameValidation.isValid) {
-                setError(nameValidation.error || 'Please enter your name');
-                toast.error(nameValidation.error || 'Please enter your name');
-                return;
-            }
-            if (password.length < 6) {
-                setError('Password must be at least 6 characters.');
-                toast.error('Password must be at least 6 characters.');
-                return;
-            }
-        }
-
-        try {
-            if (isSignUp) {
-                await signUpWithEmail(email, password, name.trim());
-                // Navigation is handled by event listeners - new signups will go to onboarding
-            } else {
-                await loginWithEmail(email, password);
-                // Navigation is handled by event listeners
-            }
-        } catch (err) {
-            const errorMessage = err instanceof Error ? err.message : (isSignUp ? 'Failed to create account.' : 'Failed to sign in. Please check your credentials.');
-            const code = (err as { code?: string })?.code ?? null;
-            setError(errorMessage);
-            setAuthErrorCode(code);
-            console.error(isSignUp ? 'Sign up error:' : 'Email login error:', err);
-            // Don't navigate on error - user should stay on login page to retry
+    /** Role-based guest login: enter as guest with selected role. */
+    const handleRoleLogin = (role: UserRole) => {
+        setPendingLoginRole(role);
+        continueAsGuest(role);
+        if (role === 'student') {
+            navigate('/', { replace: true });
+        } else if (role === 'teacher') {
+            navigate('/teacher', { replace: true });
+        } else {
+            navigate('/admin', { replace: true });
         }
     };
 
     return (
-        <div className="min-h-screen min-h-[100dvh] relative overflow-x-hidden overflow-y-auto flex flex-col items-center justify-center px-3 sm:px-4 py-6 safe-top safe-bottom">
-            {/* Pastel gradient background: lavender → pink → light blue */}
-            <div className="fixed inset-0 bg-gradient-to-b from-purple-100 via-pink-100 to-blue-100 dark:from-slate-950 dark:via-slate-900 dark:to-slate-800" />
+        <div className="min-h-screen min-h-[100dvh] h-screen h-[100dvh] relative overflow-hidden flex flex-col items-center justify-center px-4 sm:px-5 py-8 safe-top safe-bottom">
+            {/* Theme: Lavender → Pink → Sky Blue (soft pastel, dreamy, kid-friendly) */}
+            <div className="fixed inset-0 bg-gradient-theme dark:from-slate-950 dark:via-slate-900 dark:to-slate-800" aria-hidden />
 
-            {/* Floating clouds - positioned at bottom and sides */}
-            <Cloud className="w-64 h-20 -left-10 bottom-20" delay={0} reduceAnimations={reduceAnimations} />
-            <Cloud className="w-48 h-16 right-0 bottom-32" delay={1} reduceAnimations={reduceAnimations} />
-            <Cloud className="w-80 h-24 -left-20 bottom-10" delay={2} reduceAnimations={reduceAnimations} />
-            <Cloud className="w-56 h-18 right-10 bottom-16" delay={0.5} reduceAnimations={reduceAnimations} />
-            <Cloud className="w-40 h-14 left-1/4 bottom-24" delay={1.5} reduceAnimations={reduceAnimations} />
-            <Cloud className="w-52 h-16 right-1/4 bottom-12" delay={3} reduceAnimations={reduceAnimations} />
-            <Cloud className="w-44 h-14 -left-8 bottom-40" delay={2.5} reduceAnimations={reduceAnimations} />
-            <Cloud className="w-60 h-18 right-1/3 bottom-8" delay={1.2} reduceAnimations={reduceAnimations} />
+            {/* Decorative clouds — bottom corners, soft fade (non-interactive) */}
+            <Cloud className="w-64 h-20 -left-10 bottom-20 opacity-80" delay={0} reduceAnimations={reduceAnimations} />
+            <Cloud className="w-48 h-16 right-0 bottom-32 opacity-70" delay={1} reduceAnimations={reduceAnimations} />
+            <Cloud className="w-80 h-24 -left-20 bottom-10 opacity-80" delay={2} reduceAnimations={reduceAnimations} />
+            <Cloud className="w-56 h-18 right-10 bottom-16 opacity-70" delay={0.5} reduceAnimations={reduceAnimations} />
+            <Cloud className="w-40 h-14 left-1/4 bottom-24 opacity-60" delay={1.5} reduceAnimations={reduceAnimations} />
+            <Cloud className="w-52 h-16 right-1/4 bottom-12 opacity-60" delay={3} reduceAnimations={reduceAnimations} />
+            <Cloud className="w-44 h-14 -left-8 bottom-40 opacity-50" delay={2.5} reduceAnimations={reduceAnimations} />
+            <Cloud className="w-60 h-18 right-1/3 bottom-8 opacity-60" delay={1.2} reduceAnimations={reduceAnimations} />
 
             {/* Sparkles */}
             <Sparkle className="top-24 right-1/4" delay={0} reduceAnimations={reduceAnimations} />
@@ -570,18 +379,18 @@ export default function LoginPage() {
             <Sparkle className="top-1/3 right-20" delay={1.5} reduceAnimations={reduceAnimations} />
             <Sparkle className="bottom-1/3 left-20" delay={2} reduceAnimations={reduceAnimations} />
 
-            {/* Content - Responsive */}
+            {/* Single-screen role gateway: vertically stacked, center-aligned, no side panels (auth deferred to next step) */}
             <motion.main
                 id={MAIN_CONTENT_ID}
                 tabIndex={-1}
-                className="relative z-10 flex flex-col items-center max-w-md w-full px-4 sm:px-6"
+                className="relative z-10 flex flex-col items-center justify-center max-w-md w-full text-center"
                 initial={reduceAnimations ? undefined : { opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={reduceAnimations ? { duration: 0 } : { duration: TRANSITION_DEFAULT.duration, ease: TRANSITION_DEFAULT.ease }}
             >
-                {/* Header Section - Large, bold title with subtitle */}
+                {/* Header: two-line block, strict center; title larger/bolder, subtitle thinner */}
                 <motion.h1
-                    className="text-4xl sm:text-5xl md:text-6xl font-bold text-gray-900 dark:text-slate-100 mb-2 sm:mb-3 text-center"
+                    className="text-4xl sm:text-5xl md:text-6xl font-bold text-gray-800 dark:text-slate-100 mb-2 sm:mb-3"
                     style={{ fontFamily: 'Inter, system-ui, sans-serif', letterSpacing: '-0.02em' }}
                     initial={reduceAnimations ? undefined : { opacity: 0, y: -20 }}
                     animate={{ opacity: 1, y: 0 }}
@@ -589,9 +398,8 @@ export default function LoginPage() {
                 >
                     AI Tutor
                 </motion.h1>
-
                 <motion.p
-                    className="text-gray-600 dark:text-slate-400 text-base sm:text-lg mb-8 sm:mb-10 text-center font-normal"
+                    className="text-gray-600 dark:text-slate-400 text-base sm:text-lg mb-8 sm:mb-10 font-normal"
                     style={{ fontFamily: 'Inter, system-ui, sans-serif' }}
                     initial={reduceAnimations ? undefined : { opacity: 0 }}
                     animate={{ opacity: 1 }}
@@ -600,156 +408,91 @@ export default function LoginPage() {
                     Your Intelligent Learning Companion
                 </motion.p>
 
-                {/* AI Avatar – calm “breathing” study buddy (no toy-like motion) */}
+                {/* Mascot: central visual anchor, large, between title and actions; glow from LoginAvatar */}
                 <LoginAvatar reduceAnimations={reduceAnimations} />
 
-                {/* Prompt text - "Ask me anything..." - Subtle, friendly, slightly italic */}
+                {/* Tagline: supporting only, smaller than subtitle, light gray, conversational */}
                 <motion.p
-                    className="text-gray-600 dark:text-slate-400 italic mb-8 sm:mb-10 text-lg sm:text-xl text-center font-light"
+                    className="text-gray-500 dark:text-slate-500 text-sm sm:text-base italic mb-10 sm:mb-12 font-light"
                     style={{ fontFamily: 'Inter, system-ui, sans-serif' }}
                     initial={reduceAnimations ? undefined : { opacity: 0 }}
                     animate={{ opacity: 1 }}
-                    transition={reduceAnimations ? { duration: 0 } : { delay: 0.6, duration: TRANSITION_DEFAULT.duration }}
+                    transition={reduceAnimations ? { duration: 0 } : { delay: 0.5, duration: TRANSITION_DEFAULT.duration }}
                 >
                     Ask me anything…
                 </motion.p>
 
-                {/* Error message - Responsive (shake feedback) */}
-                {error && (
-                    <motion.div
-                        initial={reduceAnimations ? false : feedbackVariants.error.initial}
-                        animate={reduceAnimations ? { opacity: 1 } : feedbackVariants.error.animate}
-                        transition={reduceAnimations ? { duration: 0 } : feedbackVariants.error.transition}
-                        className="w-full mb-4 p-3 bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900/60 rounded-xl text-red-600 dark:text-red-300 text-xs sm:text-sm text-center"
-                    >
-                        {error}
-                        {(authErrorCode === 'validation_failed' || authErrorCode === 'rate_limit_exceeded') && (
-                            <p className="mt-2 text-[11px] opacity-90">
-                                {authErrorCode === 'validation_failed'
-                                    ? 'Administrators: enable Google in Firebase Console → Authentication → Sign-in method. See docs/AUTH_SETUP.md.'
-                                    : 'Administrators: auth rate limits can be adjusted in Firebase (see docs/AUTH_SETUP.md).'}
-                            </p>
-                        )}
-                    </motion.div>
+                {/* Primary action: role-based login only — no Google/Apple/Email */}
+                <motion.div
+                    className="w-full"
+                    initial={reduceAnimations ? undefined : { opacity: 0, y: 12 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={reduceAnimations ? { duration: 0 } : { delay: 0.6, duration: TRANSITION_DEFAULT.duration }}
+                >
+                    <div className="space-y-4">
+                        <motion.button
+                            type="button"
+                            onClick={() => handleRoleLogin('student')}
+                            className="w-full flex items-center justify-center gap-4 min-h-[52px] py-4 px-5 rounded-2xl bg-white dark:bg-slate-800/90 border border-gray-100 dark:border-slate-600 shadow-sm hover:shadow transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-400"
+                            whileHover={reduceAnimations ? undefined : { y: -1 }}
+                            whileTap={reduceAnimations ? undefined : { scale: 0.99 }}
+                        >
+                            <div className="w-12 h-12 rounded-xl bg-blue-100 dark:bg-blue-900/40 flex items-center justify-center shrink-0">
+                                <GraduationCap className="w-6 h-6 text-blue-600 dark:text-blue-400" />
+                            </div>
+                            <span className="font-semibold text-gray-800 dark:text-slate-100 text-base">Student Login</span>
+                        </motion.button>
+                        <motion.button
+                            type="button"
+                            onClick={() => handleRoleLogin('teacher')}
+                            className="w-full flex items-center justify-center gap-4 min-h-[52px] py-4 px-5 rounded-2xl bg-white dark:bg-slate-800/90 border border-gray-100 dark:border-slate-600 shadow-sm hover:shadow transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-green-500"
+                            whileHover={reduceAnimations ? undefined : { y: -1 }}
+                            whileTap={reduceAnimations ? undefined : { scale: 0.99 }}
+                        >
+                            <div className="w-12 h-12 rounded-xl bg-green-100 dark:bg-green-900/40 flex items-center justify-center shrink-0 ring-2 ring-amber-800/30 dark:ring-amber-700/40">
+                                <ClipboardCheck className="w-6 h-6 text-green-600 dark:text-green-400" />
+                            </div>
+                            <span className="font-semibold text-gray-800 dark:text-slate-100 text-base">Teacher Login</span>
+                        </motion.button>
+                        <motion.button
+                            type="button"
+                            onClick={() => handleRoleLogin('admin')}
+                            className="w-full flex items-center justify-center gap-4 min-h-[52px] py-4 px-5 rounded-2xl bg-white dark:bg-slate-800/90 border border-gray-100 dark:border-slate-600 shadow-sm hover:shadow transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-500"
+                            whileHover={reduceAnimations ? undefined : { y: -1 }}
+                            whileTap={reduceAnimations ? undefined : { scale: 0.99 }}
+                        >
+                            <div className="w-12 h-12 rounded-xl bg-amber-100 dark:bg-amber-900/40 flex items-center justify-center shrink-0">
+                                <Shield className="w-6 h-6 text-amber-600 dark:text-amber-400" />
+                            </div>
+                            <span className="font-semibold text-gray-800 dark:text-slate-100 text-base">Admin/Principal Login</span>
+                        </motion.button>
+                        <p className="text-center text-sm text-gray-500 dark:text-slate-400 pt-1">
+                            Or{' '}
+                            <button
+                                type="button"
+                                onClick={() => setAuthModalRole('student')}
+                                className="inline-flex items-center gap-1 text-purple-600 dark:text-purple-400 font-medium hover:underline"
+                            >
+                                <Mail className="w-4 h-4" />
+                                Sign in with Email
+                            </button>
+                        </p>
+                    </div>
+                </motion.div>
+
+                {authModalRole !== null && (
+                    <AuthModal
+                        defaultRole={authModalRole}
+                        onClose={() => setAuthModalRole(null)}
+                    />
                 )}
 
-                {/* Authentication Actions - Three stacked, full-width buttons, evenly spaced */}
-                <motion.div
-                    className="w-full space-y-3 sm:space-y-4"
-                    initial={reduceAnimations ? undefined : { opacity: 0, y: 20 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={reduceAnimations ? { duration: 0 } : { delay: 0.7, duration: TRANSITION_DEFAULT.duration }}
-                >
-                    {!showEmailForm ? (
-                        <>
-                            {/* Continue with Google - White background, Google G logo, blue text */}
-                            <motion.button
-                                type="button"
-                                onClick={handleGoogleLogin}
-                                disabled={isLoading}
-                                className="w-full flex items-center justify-center gap-3 px-6 py-4 bg-white rounded-2xl shadow-sm hover:shadow-md transition-all hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed min-h-[52px] active:scale-[0.98] touch-manipulation focus:outline-none focus-visible:ring-2 focus-visible:ring-purple-400 focus-visible:ring-offset-2"
-                                whileHover={reduceAnimations ? undefined : { scale: 1.01 }}
-                                whileTap={reduceAnimations ? undefined : { scale: 0.98 }}
-                            >
-                                <svg className="w-5 h-5 shrink-0" viewBox="0 0 24 24">
-                                    <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
-                                    <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" />
-                                    <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" />
-                                    <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" />
-                                </svg>
-                                <span className="text-blue-600 font-medium text-base">Continue with Google</span>
-                            </motion.button>
-
-                            {/* Continue with Apple - Dark (near-black) background, white Apple logo, white text */}
-                            <motion.button
-                                type="button"
-                                onClick={handleAppleLogin}
-                                disabled={isLoading}
-                                className="w-full flex items-center justify-center gap-3 px-6 py-4 bg-gray-900 rounded-2xl shadow-sm hover:shadow-md transition-all hover:bg-gray-800 disabled:opacity-50 disabled:cursor-not-allowed min-h-[52px] active:scale-[0.98] touch-manipulation focus:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-gray-900"
-                                whileHover={reduceAnimations ? undefined : { scale: 1.01 }}
-                                whileTap={reduceAnimations ? undefined : { scale: 0.98 }}
-                            >
-                                <svg className="w-5 h-5 text-white shrink-0" fill="currentColor" viewBox="0 0 24 24">
-                                    <path d="M18.71 19.5c-.83 1.24-1.71 2.45-3.05 2.47-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.3-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.81-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.38 2.83M13 3.5c.73-.83 1.94-1.46 2.94-1.5.13 1.17-.34 2.35-1.04 3.19-.69.85-1.83 1.51-2.95 1.42-.15-1.15.41-2.35 1.05-3.11z" />
-                                </svg>
-                                <span className="text-white font-medium text-base">Continue with Apple</span>
-                            </motion.button>
-
-                            {/* Sign in with Email - White background, blue envelope icon, blue text */}
-                            <motion.button
-                                type="button"
-                                onClick={() => setShowEmailForm(true)}
-                                disabled={isLoading}
-                                className="w-full flex items-center justify-center gap-3 px-6 py-4 bg-white rounded-2xl shadow-sm hover:shadow-md transition-all hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed min-h-[52px] active:scale-[0.98] touch-manipulation focus:outline-none focus-visible:ring-2 focus-visible:ring-purple-400 focus-visible:ring-offset-2"
-                                whileHover={reduceAnimations ? undefined : { scale: 1.01 }}
-                                whileTap={reduceAnimations ? undefined : { scale: 0.98 }}
-                            >
-                                <svg className="w-5 h-5 text-blue-600 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
-                                </svg>
-                                <span className="text-blue-600 font-medium text-base">Sign in with Email</span>
-                            </motion.button>
-                        </>
-                    ) : (
-                        /* Email Form (Sign In / Sign Up) */
-                        <motion.form
-                            onSubmit={handleEmailSubmit}
-                            className="space-y-3"
-                            initial={{ opacity: 0, height: 0 }}
-                            animate={{ opacity: 1, height: 'auto' }}
-                        >
-                            {isSignUp && (
-                                <input
-                                    type="text"
-                                    value={name}
-                                    onChange={(e) => setName(e.target.value)}
-                                    placeholder={t('name')}
-                                    className="w-full px-5 py-3.5 bg-white/90 dark:bg-slate-800/90 backdrop-blur-sm rounded-full shadow-md focus:outline-none focus:ring-2 focus:ring-purple-400 transition-all text-gray-900 dark:text-slate-100 placeholder-gray-500 dark:placeholder-slate-400"
-                                    autoComplete="name"
-                                />
-                            )}
-                            <input
-                                type="email"
-                                value={email}
-                                onChange={(e) => setEmail(e.target.value)}
-                                placeholder={t('email')}
-                                className="w-full px-5 py-3.5 bg-white/90 dark:bg-slate-800/90 backdrop-blur-sm rounded-full shadow-md focus:outline-none focus:ring-2 focus:ring-purple-400 transition-all text-gray-900 dark:text-slate-100 placeholder-gray-500 dark:placeholder-slate-400"
-                                required
-                                autoComplete="email"
-                            />
-                            <input
-                                type="password"
-                                value={password}
-                                onChange={(e) => setPassword(e.target.value)}
-                                placeholder={t('password')}
-                                className="w-full px-5 py-3.5 bg-white/90 dark:bg-slate-800/90 backdrop-blur-sm rounded-full shadow-md focus:outline-none focus:ring-2 focus:ring-purple-400 transition-all text-gray-900 dark:text-slate-100 placeholder-gray-500 dark:placeholder-slate-400"
-                                required
-                                autoComplete={isSignUp ? 'new-password' : 'current-password'}
-                            />
-                            <button
-                                type="submit"
-                                disabled={isLoading}
-                                className="w-full py-3.5 bg-gradient-to-r from-purple-500 to-pink-500 text-white font-semibold rounded-full shadow-lg hover:shadow-xl transition-ui disabled:opacity-50 active:scale-[0.98]"
-                            >
-                                {isLoading ? t('loading') : isSignUp ? t('createAccount') : t('signIn')}
-                            </button>
-                            <button
-                                type="button"
-                                onClick={() => { setIsSignUp(!isSignUp); setError(null); }}
-                                className="w-full py-2 text-gray-500 dark:text-slate-400 hover:text-gray-700 dark:hover:text-slate-200 transition-ui active:scale-[0.98] text-sm"
-                            >
-                                {isSignUp ? t('alreadyHaveAccount') : t('noAccount')} {isSignUp ? t('signIn') : t('signUp')}
-                            </button>
-                            <button
-                                type="button"
-                                onClick={() => { setShowEmailForm(false); setError(null); setIsSignUp(false); }}
-                                className="w-full py-2 text-gray-500 dark:text-slate-400 hover:text-gray-700 dark:hover:text-slate-200 transition-ui active:scale-[0.98]"
-                            >
-                                {t('back')}
-                            </button>
-                        </motion.form>
-                    )}
-                </motion.div>
+                {/* Footer: Terms & Privacy for compliance */}
+                <footer className="mt-auto pt-8 pb-4 safe-bottom text-center text-sm text-gray-500 dark:text-slate-500">
+                    <a href="/terms" className="hover:text-purple-600 dark:hover:text-purple-400 underline">Terms of Service</a>
+                    <span className="mx-2">·</span>
+                    <a href="/privacy" className="hover:text-purple-600 dark:hover:text-purple-400 underline">Privacy Policy</a>
+                </footer>
             </motion.main>
         </div>
     );

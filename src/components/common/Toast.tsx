@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import React, { useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useShallow } from 'zustand/react/shallow';
 import { X, CheckCircle, AlertCircle, Info, AlertTriangle } from 'lucide-react';
@@ -7,11 +7,18 @@ import { TRANSITION_FAST, fadeScaleVariants } from '../../utils/animations';
 
 export type ToastType = 'success' | 'error' | 'info' | 'warning';
 
+export interface ToastAction {
+    label: string;
+    onClick: () => void;
+}
+
 export interface Toast {
     id: string;
     message: string;
     type: ToastType;
     duration?: number;
+    /** Optional action (e.g. "Undo"); onClick is called then toast is closed */
+    action?: ToastAction;
 }
 
 interface ToastProps {
@@ -56,16 +63,17 @@ function ToastItem({ toast, onClose, reduceAnimations }: ToastProps) {
     const noMotion = reduceAnimations;
 
     return (
-        <motion.div
-            layout={!noMotion}
-            initial={noMotion ? false : fadeScaleVariants.initial}
-            animate={noMotion ? { opacity: 1, scale: 1 } : fadeScaleVariants.animate}
-            exit={noMotion ? undefined : { ...fadeScaleVariants.exit, transition: TRANSITION_FAST }}
-            transition={noMotion ? { duration: 0 } : { duration: TRANSITION_FAST.duration, ease: TRANSITION_FAST.ease }}
-            className={`flex items-start gap-3 p-4 rounded-lg border shadow-lg max-w-md ${colors[toast.type]}`}
-            role="alert"
-            aria-live="polite"
-        >
+        <>
+            <motion.div
+                layout={!noMotion}
+                initial={noMotion ? false : (fadeScaleVariants.initial as React.ComponentProps<typeof motion.div>['initial'])}
+                animate={noMotion ? { opacity: 1, scale: 1 } : (fadeScaleVariants.animate as React.ComponentProps<typeof motion.div>['animate'])}
+                exit={noMotion ? undefined : ({ ...fadeScaleVariants.exit, transition: TRANSITION_FAST } as React.ComponentProps<typeof motion.div>['exit'])}
+                transition={noMotion ? { duration: 0 } : { duration: TRANSITION_FAST.duration, ease: TRANSITION_FAST.ease }}
+                className={`flex items-start gap-3 p-4 rounded-lg border shadow-lg w-full max-w-md min-w-0 ${colors[toast.type]}`}
+                role="alert"
+                aria-live="polite"
+            >
             <motion.span
                 initial={noMotion ? false : { scale: 0 }}
                 animate={{ scale: 1 }}
@@ -74,11 +82,25 @@ function ToastItem({ toast, onClose, reduceAnimations }: ToastProps) {
             >
                 <Icon className="w-5 h-5" />
             </motion.span>
-            <p className="flex-1 text-sm font-medium">{toast.message}</p>
+            <div className="flex-1 min-w-0 flex flex-col gap-2">
+                <p className="text-sm font-medium break-words">{toast.message}</p>
+                {toast.action && (
+                    <button
+                        type="button"
+                        onClick={() => {
+                            toast.action?.onClick();
+                            onClose(toast.id);
+                        }}
+                        className="text-sm font-semibold underline underline-offset-2 hover:no-underline text-left"
+                    >
+                        {toast.action.label}
+                    </button>
+                )}
+            </div>
             <motion.button
                 type="button"
                 onClick={() => onClose(toast.id)}
-                className="flex-shrink-0 text-gray-400 dark:text-slate-400 hover:text-gray-600 dark:hover:text-slate-200 transition-ui rounded p-0.5"
+                className="flex-shrink-0 min-h-[44px] min-w-[44px] flex items-center justify-center text-gray-400 dark:text-slate-400 hover:text-gray-600 dark:hover:text-slate-200 transition-ui rounded p-0.5 touch-manipulation"
                 whileHover={noMotion ? undefined : { scale: 1.1 }}
                 whileTap={noMotion ? undefined : { scale: 0.95 }}
                 transition={{ duration: 0.15 }}
@@ -86,7 +108,8 @@ function ToastItem({ toast, onClose, reduceAnimations }: ToastProps) {
             >
                 <X className="w-4 h-4" />
             </motion.button>
-        </motion.div>
+            </motion.div>
+        </>
     );
 }
 
@@ -100,7 +123,7 @@ export default function ToastContainer({ toasts, onClose }: ToastContainerProps)
     const noMotion = reduceAnimations;
     return (
         <div
-            className="fixed top-4 left-4 right-4 sm:left-auto sm:right-4 z-50 flex flex-col gap-2 pointer-events-none safe-top"
+            className="fixed top-4 left-3 right-3 sm:left-auto sm:right-4 sm:max-w-md z-50 flex flex-col gap-2 pointer-events-none safe-top"
             aria-live="assertive"
             aria-atomic="true"
         >

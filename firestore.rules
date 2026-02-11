@@ -1,40 +1,33 @@
 rules_version = '2';
-// Firestore rules for AIra – Firebase is the core backend.
-// Collections: profiles, sessions, doubts, notes, flashcards, mindmaps (see backendService.ts)
+// Firestore security rules for AIra. Schema: profiles, teaching_sessions, doubts, notes, flashcards, mind_maps (all with user_id / userId).
+// The rate_limits collection is used only by Cloud Functions (Admin SDK); no client access — leave unmatched so it is denied for clients.
 service cloud.firestore {
   match /databases/{database}/documents {
-    function isAuthenticated() {
-      return request.auth != null;
-    }
-    function isOwner(uid) {
-      return isAuthenticated() && request.auth.uid == uid;
-    }
-    // Profile document per user (doc id = uid)
     match /profiles/{userId} {
-      allow read, write: if isOwner(userId);
+      allow read, write: if request.auth != null && request.auth.uid == userId;
     }
-    // User-owned documents (each has userId field)
-    match /sessions/{docId} {
-      allow read, create, update, delete: if isAuthenticated()
-        && (resource == null ? request.resource.data.userId == request.auth.uid : resource.data.userId == request.auth.uid);
+    match /teaching_sessions/{sessionId} {
+      allow read, write: if request.auth != null && resource.data.user_id == request.auth.uid;
+      allow create: if request.auth != null && request.resource.data.user_id == request.auth.uid;
     }
-    match /doubts/{docId} {
-      allow read, create, update, delete: if isAuthenticated()
-        && (resource == null ? request.resource.data.userId == request.auth.uid : resource.data.userId == request.auth.uid);
+    match /doubts/{doubtId} {
+      allow read, write: if request.auth != null && resource.data.user_id == request.auth.uid;
+      allow create: if request.auth != null && request.resource.data.user_id == request.auth.uid;
     }
-    match /notes/{docId} {
-      allow read, create, update, delete: if isAuthenticated()
-        && (resource == null ? request.resource.data.userId == request.auth.uid : resource.data.userId == request.auth.uid);
+    match /notes/{noteId} {
+      allow read, write: if request.auth != null && resource.data.user_id == request.auth.uid;
+      allow create: if request.auth != null && request.resource.data.user_id == request.auth.uid;
     }
-    match /flashcards/{docId} {
-      allow read, create, update, delete: if isAuthenticated()
-        && (resource == null ? request.resource.data.userId == request.auth.uid : resource.data.userId == request.auth.uid);
+    match /flashcards/{cardId} {
+      allow read, write: if request.auth != null && resource.data.user_id == request.auth.uid;
+      allow create: if request.auth != null && request.resource.data.user_id == request.auth.uid;
     }
-    match /mindmaps/{docId} {
-      allow read, create, update, delete: if isAuthenticated()
-        && (resource == null ? request.resource.data.userId == request.auth.uid : resource.data.userId == request.auth.uid);
+    match /mind_maps/{mapId} {
+      allow read, write: if request.auth != null && resource.data.user_id == request.auth.uid;
+      allow create: if request.auth != null && request.resource.data.user_id == request.auth.uid;
     }
-    match /{document=**} {
+    // Server-only: rate_limits used by Cloud Functions (Admin SDK). Explicit deny for clients.
+    match /rate_limits/{document=**} {
       allow read, write: if false;
     }
   }

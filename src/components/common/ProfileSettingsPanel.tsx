@@ -1,4 +1,4 @@
-import { useEffect, useRef, useCallback, useState, useMemo } from 'react';
+import { useRef, useCallback, useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useProfilePanelStore } from '../../stores/profilePanelStore';
@@ -7,37 +7,20 @@ import { useUserStore } from '../../stores/userStore';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { useShallow } from 'zustand/react/shallow';
 import {
-    X, User, LogOut, LayoutDashboard,
+    X, User, LogOut, LayoutDashboard, BookOpen
 } from 'lucide-react';
 import { overlayVariants, overlayTransition } from '../../utils/animations';
 import DashboardView from './DashboardView';
-import { professions } from '../../data/professions';
 import { findTopicInfo, formatTopicName } from '../../utils/topicUtils';
-import type { Subject } from '../../types';
+import { useFocusTrap } from '../../hooks/useFocusTrap';
 
 export default function ProfileSettingsPanel() {
     const navigate = useNavigate();
     const isOpen = useProfilePanelStore((s) => s.isOpen);
     const close = useProfilePanelStore((s) => s.close);
     const panelRef = useRef<HTMLElement>(null);
-    const previousActiveElement = useRef<HTMLElement | null>(null);
 
-    // Focus first focusable when panel opens; restore focus when closed
-    useEffect(() => {
-        if (isOpen) {
-            previousActiveElement.current = document.activeElement as HTMLElement | null;
-            const timer = requestAnimationFrame(() => {
-                const firstFocusable = panelRef.current?.querySelector<HTMLElement>(
-                    'button[aria-label="Close panel"], button:not([disabled])'
-                );
-                firstFocusable?.focus();
-            });
-            return () => cancelAnimationFrame(timer);
-        } else if (previousActiveElement.current?.focus) {
-            previousActiveElement.current.focus();
-            previousActiveElement.current = null;
-        }
-    }, [isOpen]);
+    useFocusTrap(panelRef, { initialFocus: true, active: isOpen });
 
     // Escape to close
     const handleKeyDown = useCallback(
@@ -49,8 +32,16 @@ export default function ProfileSettingsPanel() {
         [close]
     );
     const { user, logout } = useAuthStore();
-    const profile = useUserStore((s) => s.profile);
-    const reduceAnimations = useSettingsStore(useShallow((state) => state.settings.accessibility.reduceAnimations));
+    const {
+        profile,
+        curriculumType,
+        selectedBoard,
+        selectedGrade,
+        selectedExam,
+        selectedSubject
+    } = useUserStore();
+    const settings = useSettingsStore(useShallow((state) => state.settings));
+    const reduceAnimations = settings.accessibility.reduceAnimations;
 
     const handleLogout = async () => {
         close();
@@ -64,19 +55,16 @@ export default function ProfileSettingsPanel() {
     const [showDashboard, setShowDashboard] = useState(false);
 
     const displayName = user?.displayName || user?.name || 'Learner';
-    const professionName = profile?.profession?.name;
-    const subProfessionName = profile?.subProfession ?? null;
 
-    // Resolve subject and topic IDs to display names for consistent UX
-    const subjectDisplayName = useMemo(() => {
-        const subjectId = profile?.subject;
-        if (!subjectId || !profile?.profession?.id) return subjectId ?? null;
-        const professionData = professions.find(p => p.id === profile.profession?.id);
-        const subProfId = profile.subProfession ?? null;
-        const sub = subProfId ? professionData?.subProfessions.find(sp => sp.id === subProfId) : undefined;
-        const subject = sub?.subjects.find((s: Subject) => s.id === subjectId);
-        return subject?.name ?? subjectId;
-    }, [profile?.subject, profile?.profession?.id, profile?.subProfession]);
+    const curriculumDisplay = useMemo(() => {
+        if (curriculumType === 'school') {
+            return `${selectedGrade} (${selectedBoard})`;
+        }
+        if (curriculumType === 'competitive') {
+            return selectedExam;
+        }
+        return null;
+    }, [curriculumType, selectedBoard, selectedGrade, selectedExam]);
 
     const topicDisplayName = useMemo(() => {
         const topicId = profile?.currentTopic;
@@ -100,14 +88,14 @@ export default function ProfileSettingsPanel() {
                         onClick={close}
                         aria-hidden
                     />
-                    {/* Centered overlay panel */}
-                    <div className="fixed inset-0 z-[101] flex items-center justify-center p-4 safe-top safe-bottom pointer-events-none">
+                    {/* Centered overlay panel: full width on small screens, max-w-md on larger */}
+                    <div className="fixed inset-0 z-[101] flex items-end sm:items-center justify-center p-0 sm:p-4 safe-top safe-bottom pointer-events-none">
                         <motion.aside
                             ref={panelRef}
                             role="dialog"
                             aria-modal="true"
                             aria-label="Profile"
-                            className="w-full max-w-md min-w-0 max-h-[85dvh] sm:max-h-[90dvh] bg-white dark:bg-slate-900 shadow-2xl rounded-2xl flex flex-col pointer-events-auto overflow-hidden"
+                            className="w-full max-w-md min-w-0 max-h-[85dvh] sm:max-h-[90dvh] bg-white dark:bg-slate-900 shadow-2xl rounded-t-2xl sm:rounded-2xl flex flex-col pointer-events-auto overflow-hidden"
                             variants={reduceAnimations ? undefined : overlayVariants}
                             initial="initial"
                             animate="animate"
@@ -148,10 +136,9 @@ export default function ProfileSettingsPanel() {
                                                     <p className="font-medium text-gray-800 dark:text-slate-100 truncate">
                                                         {displayName}
                                                     </p>
-                                                    {professionName && (
+                                                    {curriculumDisplay && (
                                                         <p className="text-sm text-gray-500 dark:text-slate-400 truncate">
-                                                            {professionName}
-                                                            {subProfessionName ? ` · ${subProfessionName}` : ''}
+                                                            {curriculumDisplay}
                                                         </p>
                                                     )}
                                                 </div>
@@ -168,15 +155,24 @@ export default function ProfileSettingsPanel() {
                                         </section>
                                         {/* Learning context */}
                                         <section className="border-t border-gray-200 dark:border-slate-700 pt-4 space-y-2">
-                                            <h3 className="text-sm font-semibold text-gray-700 dark:text-slate-200">Learning Context</h3>
+                                            <h3 className="text-sm font-semibold text-gray-700 dark:text-slate-200 flex items-center gap-2">
+                                                <BookOpen className="w-4 h-4 text-purple-500" />
+                                                Learning Context
+                                            </h3>
                                             <div className="text-sm text-gray-600 dark:text-slate-300">
                                                 <span className="font-medium text-gray-800 dark:text-slate-100">Subject:</span>{' '}
-                                                {subjectDisplayName ?? 'Not set'}
+                                                {selectedSubject ?? 'General'}
                                             </div>
                                             <div className="text-sm text-gray-600 dark:text-slate-300">
                                                 <span className="font-medium text-gray-800 dark:text-slate-100">Current topic:</span>{' '}
                                                 {topicDisplayName ?? 'Not set'}
                                             </div>
+                                            {curriculumType && (
+                                                <div className="text-sm text-gray-600 dark:text-slate-300">
+                                                    <span className="font-medium text-gray-800 dark:text-slate-100">Path:</span>{' '}
+                                                    <span className="capitalize">{curriculumType}</span>
+                                                </div>
+                                            )}
                                         </section>
 
                                         {/* Logout */}

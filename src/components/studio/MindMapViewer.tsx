@@ -135,13 +135,46 @@ export default function MindMapViewer({ mindMap }: MindMapViewerProps) {
         URL.revokeObjectURL(url);
     };
 
+    const handleDownloadPng = () => {
+        const svgElement = document.getElementById('mindmap-svg');
+        if (!svgElement || !(svgElement instanceof SVGElement)) return;
+        const viewBox = svgElement.getAttribute('viewBox') ?? '0 0 400 300';
+        const [, , w, h] = viewBox.split(/\s+/).map(Number);
+        const scale = 2;
+        const canvas = document.createElement('canvas');
+        canvas.width = w * scale;
+        canvas.height = h * scale;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) return;
+        const svgData = new XMLSerializer().serializeToString(svgElement);
+        const img = new Image();
+        const blob = new Blob([svgData], { type: 'image/svg+xml' });
+        const url = URL.createObjectURL(blob);
+        img.onload = () => {
+            ctx.fillStyle = '#f8fafc';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            ctx.drawImage(img, 0, 0, w * scale, h * scale);
+            URL.revokeObjectURL(url);
+            canvas.toBlob((blob) => {
+                if (!blob) return;
+                const a = document.createElement('a');
+                a.href = URL.createObjectURL(blob);
+                a.download = `${mindMap.topicName.toLowerCase().replace(/\s+/g, '-')}-mindmap.png`;
+                a.click();
+                URL.revokeObjectURL(a.href);
+            }, 'image/png');
+        };
+        img.onerror = () => URL.revokeObjectURL(url);
+        img.src = url;
+    };
+
     const centralNode = mindMap.nodes?.length ? mindMap.nodes[0] : null;
 
     return (
         <div className="bg-white dark:bg-slate-900 rounded-xl shadow-lg overflow-hidden min-w-0 max-w-full flex flex-col">
             {/* Header */}
             <div className="bg-gradient-to-r from-indigo-500 to-purple-500 text-white p-3 flex items-center justify-between gap-2 shrink-0 min-w-0">
-                <div className="min-w-0 flex-1">
+                <div className="min-w-0 flex-1" data-reading-content>
                     <h3 className="font-bold truncate text-sm sm:text-base" title={mindMap.topicName}>{mindMap.topicName}</h3>
                     <p className="text-xs text-indigo-200">Interactive Mind Map</p>
                 </div>
@@ -167,8 +200,16 @@ export default function MindMapViewer({ mindMap }: MindMapViewerProps) {
                     <button
                         onClick={handleDownload}
                         className="p-1.5 hover:bg-white/20 rounded transition-colors"
+                        title="Download as SVG"
                     >
                         <Download className="w-4 h-4" />
+                    </button>
+                    <button
+                        onClick={handleDownloadPng}
+                        className="p-1.5 hover:bg-white/20 rounded transition-colors"
+                        title="Download as PNG"
+                    >
+                        <span className="text-xs font-medium">PNG</span>
                     </button>
                 </div>
             </div>
@@ -190,7 +231,7 @@ export default function MindMapViewer({ mindMap }: MindMapViewerProps) {
                 </svg>
 
                 {/* Legend */}
-                <div className="absolute bottom-2 left-2 bg-white/90 dark:bg-slate-900/70 backdrop-blur-sm rounded-lg p-2 text-xs border border-gray-200 dark:border-slate-700 text-gray-700 dark:text-slate-200">
+                <div className="absolute bottom-2 left-2 bg-white/90 dark:bg-slate-900/70 backdrop-blur-sm rounded-lg p-2 text-xs border border-gray-200 dark:border-slate-700 text-gray-700 dark:text-slate-200" data-reading-content>
                     <p className="text-gray-500 dark:text-slate-400 mb-1">Click nodes to expand/collapse</p>
                     <div className="flex gap-2">
                         <span className="flex items-center gap-1">

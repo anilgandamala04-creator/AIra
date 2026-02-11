@@ -29,7 +29,7 @@ ProtectedRoute enforces: authenticated, user data loaded, onboarding complete (p
 
 ### 1. Auth
 - **Login (Google / Apple / Email):** Handled in authStore; success events trigger redirect to onboarding or /learn; errors set local state and toast.
-- **Guest:** Marked loaded so ProtectedRoute does not block; no Firestore subscription.
+- **Guest:** Marked loaded so ProtectedRoute does not block; no backend subscription.
 - **Logout:** Profile panel → Log out; authStore.logout + navigate to /login.
 
 ### 2. Onboarding
@@ -55,7 +55,7 @@ ProtectedRoute enforces: authenticated, user data loaded, onboarding complete (p
 - **Start topic:** `navigate(\`/learn/${topicId}\`)`; touch targets and focus-visible on filters and Start Learning.
 
 ### 6. Backend & AI
-- **Firestore:** subscribeToUserData, createTeachingSession, updateTeachingSession, saveNote, saveFlashcards, saveMindMap, saveDoubt, updateDoubt; used by hooks (useBackend) and stores; errors logged or passed to callbacks.
+- **Backend (in-memory):** subscribeToUserData, createTeachingSession, updateTeachingSession, saveNote, saveFlashcards, saveMindMap, saveDoubt, updateDoubt; used by hooks (useBackend) and stores; errors logged or passed to callbacks.
 - **AI API:** getBaseUrl (env + host); generateContent, resolveDoubt, generateTeachingContent, generateQuiz; validatePrompt; fetchWithRetry; ensureBackendReachable with user-facing message; timeouts and AbortController.
 - **Contextual AI:** generateChatResponse, generateContextualResponse; domain isolation; fallback message when backend unreachable.
 - **Health:** startHealthMonitoring; toast when backend not available on init.

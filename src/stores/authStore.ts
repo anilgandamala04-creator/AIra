@@ -1,74 +1,71 @@
 import { create } from 'zustand';
-import { auth } from '../lib/firebase';
-import type { User as FirebaseUser } from 'firebase/auth';
-import type { User, AuthState } from '../types';
-import {
-  signInWithGoogle as authSignInWithGoogle,
-  signInWithApple as authSignInWithApple,
-  signInWithEmail as authSignInWithEmail,
-  signUpWithEmail as authSignUpWithEmail,
-  sendPasswordReset,
-  signOutUser,
-  updateUserPassword,
-} from '../services/authService';
+import type { User, AuthState, UserRole } from '../types';
 import { toast } from './toastStore';
-import { onAuthStateChanged } from 'firebase/auth';
+import { auth, hasFirebase } from '../lib/firebase';
+import { logAppEvent, ANALYTICS_EVENTS } from '../lib/analytics';
+import {
+  signInWithEmailAndPassword,
+  createUserWithEmailAndPassword,
+  signInWithPopup,
+  signOut as firebaseSignOut,
+  onAuthStateChanged,
+  updateProfile,
+  updatePassword,
+  reauthenticateWithCredential,
+  reauthenticateWithPopup,
+  sendEmailVerification as firebaseSendEmailVerification,
+  reload,
+  linkWithPopup,
+  linkWithCredential,
+  sendSignInLinkToEmail as firebaseSendSignInLinkToEmail,
+  isSignInWithEmailLink as firebaseIsSignInWithEmailLink,
+  signInWithEmailLink as firebaseSignInWithEmailLink,
+  type User as FirebaseUser,
+  EmailAuthProvider,
+  GoogleAuthProvider,
+  OAuthProvider,
+} from 'firebase/auth';
 
 interface AuthStore extends AuthState {
+  pendingLoginRole: UserRole | null;
+  setPendingLoginRole: (role: UserRole | null) => void;
   login: (user: User) => void;
-  loginWithGoogle: () => Promise<void>;
-  loginWithApple: () => Promise<void>;
-  loginWithEmail: (email: string, password: string) => Promise<void>;
-  signUpWithEmail: (email: string, password: string, name: string) => Promise<void>;
-  continueAsGuest: () => void;
+  continueAsGuest: (role?: UserRole) => void;
   skipToDemo: () => void;
-  logout: () => Promise<void>;
-  recoverPassword: (email: string) => Promise<void>;
-  resetPassword: (token: string, newPassword: string) => Promise<void>;
-  _setUserFromFirebase: (user: User | null) => void;
+  logout: () => void;
+  signInWithEmail: (email: string, password: string) => Promise<{ error: Error | null }>;
+  signUpWithEmail: (email: string, password: string, displayName?: string) => Promise<{ error: Error | null }>;
+  signInWithOAuth: (provider: 'google' | 'apple') => Promise<{ error: Error | null }>;
+  changePassword: (currentPassword: string, newPassword: string) => Promise<{ error: Error | null }>;
+  /** Re-authenticate before sensitive action (delete account). Returns error if failed. */
+  reauthenticateForSensitiveAction: (password?: string) => Promise<{ error: Error | null }>;
+  sendEmailVerification: () => Promise<{ error: Error | null }>;
+  reloadUser: () => Promise<void>;
+  linkWithGoogle: () => Promise<{ error: Error | null }>;
+  linkWithEmail: (email: string, password: string) => Promise<{ error: Error | null }>;
+  /** Send passwordless sign-in link to email. User clicks link to sign in. */
+  sendMagicLink: (email: string) => Promise<{ error: Error | null }>;
+  /** Complete sign-in from email link (call when isSignInWithEmailLink(url) is true). */
+  completeMagicLinkSignIn: (email: string, emailLink?: string) => Promise<{ error: Error | null }>;
   _setAuthLoading: (loading: boolean) => void;
-  _clearIfNotGuest: () => void;
 }
 
-function mapFirebaseUser(fb: FirebaseUser, authMethod: User['authMethod']): User {
-  const displayName =
-    fb.displayName ||
-    (fb.providerData?.[0] as { displayName?: string } | undefined)?.displayName ||
-    fb.email?.split('@')[0] ||
-    'User';
-  const photoURL = fb.photoURL || (fb.providerData?.[0] as { photoURL?: string } | undefined)?.photoURL;
+const MAGIC_LINK_EMAIL_KEY = 'aira_emailForSignIn';
+
+function createGuestUser(role: UserRole = 'student'): User {
+  const labels: Record<UserRole, string> = { student: 'Guest Student', teacher: 'Guest Teacher', admin: 'Guest Admin' };
   return {
-    id: fb.uid,
-    email: fb.email ?? '',
-    name: displayName,
-    displayName,
-    avatar: photoURL ?? undefined,
-    authMethod,
-    isVerified: !!fb.emailVerified,
-    role: 'student',
+    id: 'guest_' + Date.now(),
+    email: 'guest@aitutor.demo',
+    name: labels[role],
+    displayName: labels[role],
+    authMethod: 'guest',
+    isVerified: false,
+    role,
     plan: 'simple',
-    createdAt: fb.metadata.creationTime ?? new Date().toISOString(),
+    createdAt: new Date().toISOString(),
   };
 }
-
-function getAuthMethodFromFirebase(fb: FirebaseUser): User['authMethod'] {
-  const providerId = fb.providerData?.[0]?.providerId ?? '';
-  if (providerId.includes('google')) return 'google';
-  if (providerId.includes('apple')) return 'apple';
-  return 'email';
-}
-
-const createGuestUser = (): User => ({
-  id: 'guest_' + Date.now(),
-  email: 'guest@aitutor.demo',
-  name: 'Guest User',
-  displayName: 'Guest',
-  authMethod: 'guest',
-  isVerified: false,
-  role: 'student',
-  plan: 'simple',
-  createdAt: new Date().toISOString(),
-});
 
 const createDemoUser = (): User => ({
   id: 'demo_user_123',
@@ -82,170 +79,55 @@ const createDemoUser = (): User => ({
   createdAt: new Date().toISOString(),
 });
 
+function mapFirebaseUserToAppUser(
+  fbUser: FirebaseUser,
+  role: UserRole = 'student'
+): User {
+  const name =
+    fbUser.displayName ??
+    fbUser.email?.split('@')[0] ??
+    'User';
+  const providerId = fbUser.providerData[0]?.providerId ?? '';
+  const authMethod: User['authMethod'] =
+    providerId.includes('google') ? 'google'
+    : providerId.includes('apple') ? 'apple'
+    : 'email';
+  return {
+    id: fbUser.uid,
+    email: fbUser.email ?? '',
+    name,
+    displayName: name,
+    avatar: fbUser.photoURL ?? undefined,
+    authMethod,
+    isVerified: fbUser.emailVerified,
+    role,
+    plan: 'simple',
+    createdAt: fbUser.metadata.creationTime ?? new Date().toISOString(),
+  };
+}
+
 export const useAuthStore = create<AuthStore>()((set, get) => ({
   user: null,
   isAuthenticated: false,
   isLoading: true,
   isGuest: false,
+  pendingLoginRole: null,
 
-  _setUserFromFirebase: (user) =>
-    set({
-      user,
-      isAuthenticated: !!user,
-      isGuest: false,
-    }),
+  setPendingLoginRole: (role) => set({ pendingLoginRole: role }),
 
   _setAuthLoading: (loading) => set({ isLoading: loading }),
 
-  _clearIfNotGuest: () =>
-    set((state) => {
-      if (state.isGuest) return state;
-      return { user: null, isAuthenticated: false, isGuest: false };
-    }),
-
-  login: (user) =>
+  login: (user) => {
+    logAppEvent(ANALYTICS_EVENTS.LOGIN, { method: user.authMethod ?? 'email' });
     set({
       user,
       isAuthenticated: true,
       isGuest: user.authMethod === 'guest',
-    }),
-
-  loginWithGoogle: async () => {
-    set({ isLoading: true });
-    try {
-      const result = await authSignInWithGoogle();
-      if (result.success && result.user) {
-        const user = mapFirebaseUser(result.user, 'google');
-        set({ user, isAuthenticated: true, isLoading: false, isGuest: false });
-        toast.success('Signed in with Google successfully!');
-        if (typeof window !== 'undefined') {
-          setTimeout(() => {
-            window.dispatchEvent(
-              new CustomEvent('auth:login-success', { detail: { user } })
-            );
-          }, 100);
-        }
-      } else if (result.error) {
-        set({ isLoading: false });
-        toast.error(result.error.userMessage);
-        const e = new Error(result.error.userMessage) as Error & { code?: string };
-        e.code = result.error.code;
-        throw e;
-      }
-    } catch (error) {
-      console.error('Google login failed:', error);
-      set({ isLoading: false });
-      const errorMessage =
-        error instanceof Error ? error.message : 'Failed to sign in with Google. Please try again.';
-      if (!errorMessage.includes('toast')) toast.error(errorMessage);
-      throw error;
-    }
+    });
   },
 
-  loginWithApple: async () => {
-    set({ isLoading: true });
-    try {
-      const result = await authSignInWithApple();
-      if (result.success && result.user) {
-        const user = mapFirebaseUser(result.user, 'apple');
-        set({ user, isAuthenticated: true, isLoading: false, isGuest: false });
-        toast.success('Signed in with Apple successfully!');
-        if (typeof window !== 'undefined') {
-          setTimeout(() => {
-            window.dispatchEvent(
-              new CustomEvent('auth:login-success', { detail: { user } })
-            );
-          }, 100);
-        }
-      } else if (result.error) {
-        set({ isLoading: false });
-        toast.error(result.error.userMessage);
-        const e = new Error(result.error.userMessage) as Error & { code?: string };
-        e.code = result.error.code;
-        throw e;
-      }
-    } catch (error) {
-      console.error('Apple login failed:', error);
-      set({ isLoading: false });
-      const errorMessage =
-        error instanceof Error ? error.message : 'Failed to sign in with Apple. Please try again.';
-      if (!errorMessage.includes('toast')) toast.error(errorMessage);
-      throw error;
-    }
-  },
-
-  loginWithEmail: async (email, password) => {
-    set({ isLoading: true });
-    try {
-      const result = await authSignInWithEmail(email, password);
-      if (result.success && result.user) {
-        const user = mapFirebaseUser(result.user, 'email');
-        set({ user, isAuthenticated: true, isLoading: false, isGuest: false });
-        toast.success('Signed in successfully!');
-        if (typeof window !== 'undefined') {
-          setTimeout(() => {
-            window.dispatchEvent(
-              new CustomEvent('auth:login-success', { detail: { user } })
-            );
-          }, 100);
-        }
-      } else if (result.error) {
-        set({ isLoading: false });
-        const errorMsg = result.error.userMessage || 'Failed to sign in. Please check your credentials.';
-        toast.error(errorMsg);
-        const e = new Error(errorMsg) as Error & { code?: string };
-        e.code = result.error.code;
-        throw e;
-      }
-    } catch (error) {
-      console.error('Email login failed:', error);
-      set({ isLoading: false });
-      if (!(error instanceof Error && error.message.includes('toast'))) {
-        toast.error(
-          error instanceof Error ? error.message : 'Failed to sign in. Please try again.'
-        );
-      }
-      throw error;
-    }
-  },
-
-  signUpWithEmail: async (email, password, name) => {
-    set({ isLoading: true });
-    try {
-      const result = await authSignUpWithEmail(email, password, name);
-      if (result.success && result.user) {
-        const user = mapFirebaseUser(result.user, 'email');
-        user.name = name;
-        user.displayName = name;
-        set({ user, isAuthenticated: true, isLoading: false, isGuest: false });
-        toast.success('Account created successfully! Please check your email to verify.');
-
-        if (typeof window !== 'undefined') {
-          setTimeout(() => {
-            window.dispatchEvent(
-              new CustomEvent('auth:signup-success', { detail: { user, isNewUser: true } })
-            );
-          }, 100);
-        }
-      } else if (result.error) {
-        set({ isLoading: false });
-        toast.error(result.error.userMessage);
-        const e = new Error(result.error.userMessage) as Error & { code?: string };
-        e.code = result.error.code;
-        throw e;
-      }
-    } catch (error) {
-      console.error('Email signup failed:', error);
-      set({ isLoading: false });
-      const errorMessage =
-        error instanceof Error ? error.message : 'Failed to create account. Please try again.';
-      if (!errorMessage.includes('toast')) toast.error(errorMessage);
-      throw error;
-    }
-  },
-
-  continueAsGuest: () => {
-    const user = createGuestUser();
+  continueAsGuest: (role) => {
+    const user = createGuestUser(role ?? get().pendingLoginRole ?? 'student');
     set({ user, isAuthenticated: true, isGuest: true });
   },
 
@@ -255,10 +137,9 @@ export const useAuthStore = create<AuthStore>()((set, get) => ({
   },
 
   logout: async () => {
-    const state = get();
-    if (!state.isGuest) {
+    if (hasFirebase && auth) {
       try {
-        await signOutUser();
+        await firebaseSignOut(auth);
       } catch (e) {
         console.error('Firebase signOut error:', e);
       }
@@ -267,58 +148,254 @@ export const useAuthStore = create<AuthStore>()((set, get) => ({
     toast.success('Signed out successfully');
   },
 
-  recoverPassword: async (email) => {
+  signInWithEmail: async (email, password) => {
+    if (!hasFirebase || !auth) return { error: new Error('Firebase is not configured') };
     try {
-      const result = await sendPasswordReset(email);
-      if (result.success) {
-        toast.success('Password reset email sent! Please check your inbox.');
-      } else if (result.error) {
-        toast.error(result.error.userMessage);
-        throw new Error(result.error.userMessage);
-      }
-    } catch (error) {
-      console.error('Password recovery failed:', error);
-      throw error;
+      const { user } = await signInWithEmailAndPassword(auth, email, password);
+      const role = get().pendingLoginRole ?? 'student';
+      const appUser = mapFirebaseUserToAppUser(user, role);
+      set({ user: { ...appUser, role }, isAuthenticated: true, isGuest: false });
+      return { error: null };
+    } catch (e) {
+      return { error: e instanceof Error ? e : new Error(String(e)) };
     }
   },
 
-  resetPassword: async (_token, newPassword) => {
-    set({ isLoading: true });
+  signUpWithEmail: async (email, password, displayName) => {
+    if (!hasFirebase || !auth) return { error: new Error('Firebase is not configured') };
     try {
-      const result = await updateUserPassword(newPassword);
-      if (result.success) {
-        toast.success('Password updated successfully!');
-        set({ isLoading: false });
-      } else {
-        set({ isLoading: false });
-        toast.error(result.error?.userMessage ?? 'Failed to reset password.');
-        throw new Error(result.error?.userMessage);
+      const { user } = await createUserWithEmailAndPassword(auth, email, password);
+      if (displayName?.trim()) {
+        try {
+          await updateProfile(user, { displayName: displayName.trim() });
+        } catch {
+          // non-fatal
+        }
       }
-    } catch (error) {
-      console.error('Password reset failed:', error);
-      set({ isLoading: false });
-      toast.error(error instanceof Error ? error.message : 'Failed to reset password.');
-      throw error;
+      try {
+        await firebaseSendEmailVerification(user);
+      } catch {
+        // non-fatal: user is created; they can request verification from Settings
+      }
+      const role = get().pendingLoginRole ?? 'student';
+      const appUser = mapFirebaseUserToAppUser(user, role);
+      set({ user: { ...appUser, role }, isAuthenticated: true, isGuest: false });
+      return { error: null };
+    } catch (e) {
+      return { error: e instanceof Error ? e : new Error(String(e)) };
+    }
+  },
+
+  sendEmailVerification: async () => {
+    if (!hasFirebase || !auth?.currentUser) return { error: new Error('Not signed in') };
+    try {
+      await firebaseSendEmailVerification(auth.currentUser);
+      return { error: null };
+    } catch (e) {
+      return { error: e instanceof Error ? e : new Error(String(e)) };
+    }
+  },
+
+  reloadUser: async () => {
+    if (!hasFirebase || !auth?.currentUser) return;
+    try {
+      await reload(auth.currentUser);
+      const fbUser = auth.currentUser;
+      if (fbUser) {
+        const role = get().user?.role ?? get().pendingLoginRole ?? 'student';
+        const appUser = mapFirebaseUserToAppUser(fbUser, role);
+        set({ user: { ...appUser, role } });
+      }
+    } catch (e) {
+      console.error('Failed to reload user:', e);
+    }
+  },
+
+  linkWithGoogle: async () => {
+    if (!hasFirebase || !auth?.currentUser) return { error: new Error('Not signed in') };
+    try {
+      await linkWithPopup(auth.currentUser, new GoogleAuthProvider());
+      await reload(auth.currentUser);
+      const fbUser = auth.currentUser;
+      if (fbUser) {
+        const role = get().user?.role ?? get().pendingLoginRole ?? 'student';
+        const appUser = mapFirebaseUserToAppUser(fbUser, role);
+        set({ user: { ...appUser, role } });
+      }
+      return { error: null };
+    } catch (e) {
+      return { error: e instanceof Error ? e : new Error(String(e)) };
+    }
+  },
+
+  linkWithEmail: async (email, password) => {
+    if (!hasFirebase || !auth?.currentUser) return { error: new Error('Not signed in') };
+    try {
+      const cred = EmailAuthProvider.credential(email, password);
+      await linkWithCredential(auth.currentUser, cred);
+      await reload(auth.currentUser);
+      const fbUser = auth.currentUser;
+      if (fbUser) {
+        const role = get().user?.role ?? get().pendingLoginRole ?? 'student';
+        const appUser = mapFirebaseUserToAppUser(fbUser, role);
+        set({ user: { ...appUser, role } });
+      }
+      return { error: null };
+    } catch (e) {
+      return { error: e instanceof Error ? e : new Error(String(e)) };
+    }
+  },
+
+  sendMagicLink: async (email) => {
+    if (!hasFirebase || !auth) return { error: new Error('Firebase is not configured') };
+    try {
+      const actionCodeSettings = {
+        url: typeof window !== 'undefined' ? window.location.origin + window.location.pathname : '',
+        handleCodeInApp: true,
+      };
+      await firebaseSendSignInLinkToEmail(auth, email.trim(), actionCodeSettings);
+      if (typeof window !== 'undefined') window.localStorage.setItem(MAGIC_LINK_EMAIL_KEY, email.trim());
+      return { error: null };
+    } catch (e) {
+      return { error: e instanceof Error ? e : new Error(String(e)) };
+    }
+  },
+
+  completeMagicLinkSignIn: async (email, emailLink) => {
+    if (!hasFirebase || !auth) return { error: new Error('Firebase is not configured') };
+    try {
+      const link = emailLink ?? (typeof window !== 'undefined' ? window.location.href : '');
+      const { user } = await firebaseSignInWithEmailLink(auth, email.trim(), link);
+      if (typeof window !== 'undefined') window.localStorage.removeItem(MAGIC_LINK_EMAIL_KEY);
+      const role = get().pendingLoginRole ?? 'student';
+      const appUser = mapFirebaseUserToAppUser(user, role);
+      set({ user: { ...appUser, role }, isAuthenticated: true, isGuest: false });
+      return { error: null };
+    } catch (e) {
+      return { error: e instanceof Error ? e : new Error(String(e)) };
+    }
+  },
+
+  signInWithOAuth: async (provider) => {
+    if (!hasFirebase || !auth) return { error: new Error('Firebase is not configured') };
+    try {
+      const prov =
+        provider === 'apple'
+          ? new OAuthProvider('apple.com')
+          : new GoogleAuthProvider();
+      if (provider === 'apple') {
+        prov.addScope('name');
+        prov.addScope('email');
+      }
+      await signInWithPopup(auth, prov);
+      const fbUser = auth.currentUser;
+      if (fbUser) {
+        const role = get().pendingLoginRole ?? 'student';
+        const appUser = mapFirebaseUserToAppUser(fbUser, role);
+        set({ user: { ...appUser, role }, isAuthenticated: true, isGuest: false });
+      }
+      return { error: null };
+    } catch (e) {
+      return { error: e instanceof Error ? e : new Error(String(e)) };
+    }
+  },
+
+  changePassword: async (currentPassword, newPassword) => {
+    if (!hasFirebase || !auth?.currentUser?.email) {
+      return { error: new Error('Not signed in with email') };
+    }
+    try {
+      const fbUser = auth.currentUser;
+      const email = fbUser.email;
+      if (!email) return { error: new Error('No email for this account') };
+      const cred = EmailAuthProvider.credential(email, currentPassword);
+      await reauthenticateWithCredential(fbUser, cred);
+      await updatePassword(fbUser, newPassword);
+      return { error: null };
+    } catch (e) {
+      return { error: e instanceof Error ? e : new Error(String(e)) };
+    }
+  },
+
+  reauthenticateForSensitiveAction: async (password) => {
+    if (!hasFirebase || !auth?.currentUser) return { error: new Error('Not signed in') };
+    const fbUser = auth.currentUser;
+    const providerId = fbUser.providerData[0]?.providerId ?? '';
+    if (providerId.includes('google') || providerId.includes('apple')) {
+      try {
+        const provider = providerId.includes('apple') ? new OAuthProvider('apple.com') : new GoogleAuthProvider();
+        await reauthenticateWithPopup(fbUser, provider);
+        return { error: null };
+      } catch (e) {
+        return { error: e instanceof Error ? e : new Error(String(e)) };
+      }
+    }
+    const email = fbUser.email;
+    if (!password || !email) return { error: new Error('Enter your password to continue') };
+    try {
+      const cred = EmailAuthProvider.credential(email, password);
+      await reauthenticateWithCredential(fbUser, cred);
+      return { error: null };
+    } catch (e) {
+      return { error: e instanceof Error ? e : new Error(String(e)) };
     }
   },
 }));
 
-/** Subscribe to Firebase Auth state and sync to store. */
+/** Max time to block UI on auth session check; after this we show shell and update when session arrives. */
+const AUTH_LOAD_CAP_MS = 220;
+
+/**
+ * If the current URL is an email sign-in link, complete sign-in and return true.
+ * Call once on app load (e.g. from App useEffect).
+ */
+export async function tryCompleteMagicLinkSignIn(): Promise<boolean> {
+  if (!hasFirebase || !auth || typeof window === 'undefined') return false;
+  if (!firebaseIsSignInWithEmailLink(auth, window.location.href)) return false;
+  const email = window.localStorage.getItem(MAGIC_LINK_EMAIL_KEY);
+  if (!email) return false;
+  const { completeMagicLinkSignIn } = useAuthStore.getState();
+  const { error } = await completeMagicLinkSignIn(email, window.location.href);
+  if (error) {
+    console.error('Magic link sign-in failed:', error);
+    return false;
+  }
+  window.history.replaceState(null, '', window.location.pathname + window.location.hash);
+  return true;
+}
+
+/**
+ * Initialize auth listener. With Firebase: subscribes to auth state and syncs to store.
+ * Without Firebase: no-op and sets isLoading false (guest/demo only).
+ */
 export function initAuthListener(): () => void {
-  const handleUser = (fbUser: FirebaseUser | null) => {
-    const store = useAuthStore.getState();
-    store._setAuthLoading(false);
-    if (fbUser) {
-      const authMethod = getAuthMethodFromFirebase(fbUser);
-      store._setUserFromFirebase(mapFirebaseUser(fbUser, authMethod));
-    } else {
-      store._clearIfNotGuest();
-    }
-  };
+  if (!hasFirebase || !auth) {
+    useAuthStore.getState()._setAuthLoading(false);
+    return () => {};
+  }
+
+  let capTimer: ReturnType<typeof setTimeout> | null = setTimeout(() => {
+    capTimer = null;
+    useAuthStore.getState()._setAuthLoading(false);
+  }, AUTH_LOAD_CAP_MS);
 
   const unsubscribe = onAuthStateChanged(auth, (fbUser) => {
-    handleUser(fbUser);
+    if (capTimer) {
+      clearTimeout(capTimer);
+      capTimer = null;
+    }
+    if (fbUser) {
+      const role = useAuthStore.getState().pendingLoginRole ?? 'student';
+      const appUser = mapFirebaseUserToAppUser(fbUser, role);
+      useAuthStore.getState().login({ ...appUser, role });
+    } else {
+      useAuthStore.getState()._setAuthLoading(false);
+      useAuthStore.setState({ user: null, isAuthenticated: false });
+    }
   });
 
-  return () => unsubscribe();
+  return () => {
+    if (capTimer) clearTimeout(capTimer);
+    unsubscribe();
+  };
 }

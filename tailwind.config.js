@@ -8,7 +8,17 @@ export default {
     theme: {
         extend: {
             colors: {
-                // Primary gradient colors from mockup
+                // Theme: soft pastel, kid-friendly
+                theme: {
+                    lavender: '#e2ddf5',
+                    pink: '#f5d0e8',
+                    'sky-blue': '#bae6fd',
+                    'primary-text': '#374151',
+                    'secondary-text': '#6b7280',
+                    accent: '#8b7dd6',
+                    violet: '#a78bfa',
+                    surface: '#ffffff',
+                },
                 primary: {
                     50: '#faf5ff',
                     100: '#f3e8ff',
@@ -21,7 +31,6 @@ export default {
                     800: '#6b21a8',
                     900: '#581c87',
                 },
-                // Accent pink
                 accent: {
                     50: '#fdf2f8',
                     100: '#fce7f3',
@@ -34,7 +43,6 @@ export default {
                     800: '#9d174d',
                     900: '#831843',
                 },
-                // Sky blue for gradients
                 sky: {
                     50: '#f0f9ff',
                     100: '#e0f2fe',
@@ -47,7 +55,6 @@ export default {
                     800: '#075985',
                     900: '#0c4a6e',
                 },
-                // Surface colors
                 surface: {
                     50: '#fefefe',
                     100: '#f8f7ff',
@@ -57,21 +64,32 @@ export default {
                 }
             },
             fontFamily: {
-                sans: ['Inter', 'system-ui', '-apple-system', 'BlinkMacSystemFont', 'Segoe UI', 'Roboto', 'sans-serif'],
-                display: ['Inter', 'system-ui', 'sans-serif'],
+                sans: ['Nunito', 'Inter', 'system-ui', '-apple-system', 'BlinkMacSystemFont', 'Segoe UI', 'Roboto', 'sans-serif'],
+                display: ['Nunito', 'Inter', 'system-ui', 'sans-serif'],
+            },
+            borderRadius: {
+                'theme': '20px',
+                'theme-lg': '24px',
+                'theme-xl': '28px',
             },
             backgroundImage: {
                 'gradient-radial': 'radial-gradient(var(--tw-gradient-stops))',
                 'gradient-main': 'linear-gradient(135deg, #667eea 0%, #a855f7 25%, #ec4899 50%, #f9a8d4 75%, #7dd3fc 100%)',
-                'gradient-soft': 'linear-gradient(180deg, #c7d2fe 0%, #e9d5ff 50%, #fbcfe8 100%)',
-                'gradient-card': 'linear-gradient(145deg, rgba(255,255,255,0.9) 0%, rgba(255,255,255,0.7) 100%)',
+                'gradient-soft': 'linear-gradient(180deg, #e2ddf5 0%, #eed5f2 25%, #f5d0e8 50%, #e8f4fc 85%, #bae6fd 100%)',
+                'gradient-theme': 'linear-gradient(180deg, #e2ddf5 0%, #eed5f2 25%, #f5d0e8 50%, #e8f4fc 85%, #bae6fd 100%)',
+                'gradient-card': 'linear-gradient(145deg, rgba(255,255,255,0.95) 0%, rgba(255,255,255,0.85) 100%)',
             },
             boxShadow: {
-                'glass': '0 8px 32px 0 rgba(31, 38, 135, 0.15)',
-                'glass-lg': '0 25px 50px -12px rgba(31, 38, 135, 0.25)',
-                'glow': '0 0 40px rgba(168, 85, 247, 0.4)',
-                'glow-sm': '0 0 20px rgba(168, 85, 247, 0.3)',
-                'soft': '0 4px 24px -1px rgba(0, 0, 0, 0.08)',
+                'glass': '0 8px 32px 0 rgba(31, 38, 135, 0.12)',
+                'glass-lg': '0 25px 50px -12px rgba(31, 38, 135, 0.2)',
+                'glow': '0 0 40px rgba(255, 255, 255, 0.5), 0 0 60px rgba(139, 125, 214, 0.2)',
+                'glow-sm': '0 0 20px rgba(255, 255, 255, 0.4)',
+                'soft': '0 4px 24px -2px rgba(139, 125, 214, 0.12), 0 8px 32px -4px rgba(0, 0, 0, 0.06)',
+                'float': '0 12px 40px -8px rgba(139, 125, 214, 0.18)',
+            },
+            fontWeight: {
+                'theme': '500',
+                'theme-semibold': '600',
             },
             animation: {
                 'float': 'float 6s ease-in-out infinite',

@@ -8,7 +8,7 @@
  * - Error handling and recovery
  */
 
-import { getAvailableModels, getBaseUrl } from './aiApi';
+import { clearHealthCheckCache, getAvailableModels, getBaseUrl } from './aiApi';
 
 // ============================================================================
 // Types
@@ -36,7 +36,7 @@ export interface AIFeatureStatus {
   lastError?: string;
 }
 
-export type AIFeature = 
+export type AIFeature =
   | 'doubt_resolution'
   | 'content_generation'
   | 'teaching_content'
@@ -61,12 +61,12 @@ export async function checkAIHealth(): Promise<AIHealthStatus> {
 
   try {
     const baseUrl = getBaseUrl();
-    console.log(`[AI Health Check] Checking backend at: ${baseUrl}/health`);
-    
-    // Check backend connectivity with timeout
+
+
+    // Check backend connectivity with timeout (shorter to avoid long loading when backend is down)
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout for health check
-    
+    const timeoutId = setTimeout(() => controller.abort(), 3000); // 3 second timeout for health check
+
     try {
       const healthResponse = await fetch(`${baseUrl}/health`, {
         method: 'GET',
@@ -80,7 +80,7 @@ export async function checkAIHealth(): Promise<AIHealthStatus> {
       if (healthResponse.ok) {
         backendConnected = true;
         const data = await healthResponse.json();
-        console.log(`[AI Health Check] Backend connected. Models: LLaMA=${data.models?.llama}, Mistral=${data.models?.mistral}`);
+
         modelsAvailable = {
           llama: data.models?.llama ?? false,
           mistral: data.models?.mistral ?? false,
@@ -94,7 +94,7 @@ export async function checkAIHealth(): Promise<AIHealthStatus> {
     } catch (fetchError) {
       clearTimeout(timeoutId);
       if (fetchError instanceof Error && fetchError.name === 'AbortError') {
-        const errorMsg = 'Health check timeout: Backend did not respond within 10 seconds';
+        const errorMsg = 'Health check timeout: Backend did not respond within 3 seconds';
         console.error(`[AI Health Check] ${errorMsg}`);
         errors.push(errorMsg);
       } else {
@@ -121,6 +121,10 @@ export async function checkAIHealth(): Promise<AIHealthStatus> {
   const latencyMs = Date.now() - startTime;
   const isHealthy = backendConnected && (modelsAvailable.llama || modelsAvailable.mistral);
 
+  if (!backendConnected) {
+    clearHealthCheckCache();
+  }
+
   return {
     isHealthy,
     backendConnected,
@@ -142,7 +146,7 @@ export async function quickHealthCheck(): Promise<boolean> {
     const baseUrl = getBaseUrl();
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 5000); // 5 second timeout
-    
+
     try {
       const response = await fetch(`${baseUrl}/health`, {
         method: 'GET',
@@ -329,10 +333,10 @@ export async function withRetry<T>(
       return await operation();
     } catch (error) {
       lastError = error instanceof Error ? error : new Error('Unknown error');
-      
+
       // Don't retry on validation errors
       if (lastError.message.includes('cannot be empty') ||
-          lastError.message.includes('exceeds maximum length')) {
+        lastError.message.includes('exceeds maximum length')) {
         throw lastError;
       }
 
@@ -358,40 +362,82 @@ export function getFallbackModel(primaryModel: 'llama' | 'mistral'): 'llama' | '
 // Connection Monitoring
 // ============================================================================
 
-let healthCheckInterval: ReturnType<typeof setInterval> | null = null;
+let healthCheckInterval: number | null = null;
 let lastHealthStatus: AIHealthStatus | null = null;
 const healthListeners: Set<(status: AIHealthStatus) => void> = new Set();
+let visibilityCleanup: () => void = () => { };
+let isMonitoringActive = false;
+
+const HEALTH_INTERVAL_WHEN_HEALTHY_MS = 60000;  // 1 minute when backend is up
+const HEALTH_INTERVAL_WHEN_UNHEALTHY_MS = 30000; // 30 seconds when backend is down (reduce network spam)
 
 /**
- * Start periodic health checks
+ * Start periodic health checks with adaptive interval.
+ * When backend is unhealthy, checks every 15s so the UI updates soon after it comes back.
+ * Idempotent: multiple callers (e.g. App + useAIHealth) do not reset the interval.
  */
-export function startHealthMonitoring(intervalMs: number = 60000): void {
-  if (healthCheckInterval) {
-    clearInterval(healthCheckInterval);
+/** @param _intervalMs Reserved for future use (e.g. configurable interval). */
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+export function startHealthMonitoring(_intervalMs?: number): void {
+  if (isMonitoringActive) return;
+  isMonitoringActive = true;
+
+  const scheduleNext = () => {
+    const nextInterval = lastHealthStatus && lastHealthStatus.backendConnected
+      ? HEALTH_INTERVAL_WHEN_HEALTHY_MS
+      : HEALTH_INTERVAL_WHEN_UNHEALTHY_MS;
+    healthCheckInterval = window.setTimeout(async () => {
+      const status = await checkAIHealth();
+      lastHealthStatus = status;
+      notifyListeners(status);
+      scheduleNext();
+    }, nextInterval);
+  };
+
+  // Defer initial check to avoid blocking first paint
+  const initialDelay = typeof window !== 'undefined' ? 400 : 0;
+  setTimeout(() => {
+    checkAIHealth().then((status) => {
+      lastHealthStatus = status;
+      notifyListeners(status);
+      scheduleNext();
+    });
+  }, initialDelay);
+
+  // When user returns to tab, run an immediate health check so status stays accurate
+  if (typeof document !== 'undefined') {
+    visibilityCleanup(); // Remove any previous listener so we don't double-subscribe
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        // Debounce: verify we haven't checked very recently (within 5s) to avoid thrashing
+        const now = Date.now();
+        const lastCheck = lastHealthStatus ? new Date(lastHealthStatus.lastChecked).getTime() : 0;
+        if (now - lastCheck > 5000) {
+          checkAIHealth().then((status) => {
+            lastHealthStatus = status;
+            notifyListeners(status);
+          });
+        }
+      }
+    };
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    visibilityCleanup = () => {
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+      visibilityCleanup = () => { };
+    };
   }
-
-  // Initial check
-  checkAIHealth().then((status) => {
-    lastHealthStatus = status;
-    notifyListeners(status);
-  });
-
-  // Periodic checks
-  healthCheckInterval = setInterval(async () => {
-    const status = await checkAIHealth();
-    lastHealthStatus = status;
-    notifyListeners(status);
-  }, intervalMs);
 }
 
 /**
- * Stop health monitoring
+ * Stop health monitoring (e.g. on App unmount). Safe to call multiple times.
  */
 export function stopHealthMonitoring(): void {
-  if (healthCheckInterval) {
-    clearInterval(healthCheckInterval);
+  isMonitoringActive = false;
+  if (healthCheckInterval != null) {
+    clearTimeout(healthCheckInterval);
     healthCheckInterval = null;
   }
+  visibilityCleanup();
 }
 
 /**
@@ -401,7 +447,7 @@ export function subscribeToHealthUpdates(
   listener: (status: AIHealthStatus) => void
 ): () => void {
   healthListeners.add(listener);
-  
+
   // Send current status immediately if available
   if (lastHealthStatus) {
     listener(lastHealthStatus);

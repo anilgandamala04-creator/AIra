@@ -8,8 +8,10 @@ dotenv.config({ path: path.resolve(process.cwd(), '..', '.env') });
 
 // ---------------------------------------------------------------------------
 // Timeouts & validation (real-time AI processing)
+// Align with server timeout (REQUEST_TIMEOUT_MS) so long teaching content (2min) is not cut.
 // ---------------------------------------------------------------------------
-const AI_REQUEST_TIMEOUT_MS = Math.max(5000, parseInt(process.env.AI_REQUEST_TIMEOUT_MS || '60000', 10) || 60000);
+const _parsed = parseInt(process.env.AI_REQUEST_TIMEOUT_MS || process.env.REQUEST_TIMEOUT_MS || '120000', 10);
+const AI_REQUEST_TIMEOUT_MS = Math.max(5000, Number.isFinite(_parsed) ? _parsed : 120000);
 export const AI_PROMPT_MAX_LENGTH = 32_000;
 const AI_PROMPT_MIN_LENGTH = 1;
 
@@ -111,8 +113,8 @@ async function withRetry<T>(
             lastError = error;
             console.warn(`[AI Service] Attempt ${attempt + 1} failed:`, error.message || error);
 
-            // Don't retry on auth errors or specific client errors
-            if (error.status === 401 || error.status === 403 || (error.message && error.message.includes('API key'))) {
+            // Don't retry on auth errors, payment-required, or specific client errors
+            if (error.status === 401 || error.status === 402 || error.status === 403 || (error.message && error.message.includes('API key')) || (error.message && error.message.includes('credits'))) {
                 throw error;
             }
         }
@@ -138,7 +140,7 @@ async function generateWithLlama(prompt: string, systemPrompt?: string): Promise
             client.chat.completions.create({
                 model,
                 messages,
-                max_tokens: 4096,
+                max_tokens: 2048,
                 temperature: 0.3,
             }),
             new Promise<never>((_, reject) =>
@@ -167,7 +169,7 @@ async function generateWithMistral(prompt: string, systemPrompt?: string): Promi
             {
                 model: mistralModel,
                 messages,
-                maxTokens: 4096,
+                maxTokens: 2048,
                 temperature: 0.3,
             },
             { timeoutMs: AI_REQUEST_TIMEOUT_MS }
@@ -210,19 +212,49 @@ export const aiService = {
         }
     },
 
-    async resolveDoubt(question: string, context: string, modelOverride?: ModelType): Promise<{
+    async resolveDoubt(
+        question: string,
+        context: string,
+        curriculumContext?: {
+            curriculumType?: string;
+            board?: string;
+            grade?: string;
+            exam?: string;
+            subject?: string;
+            topic?: string;
+        },
+        modelOverride?: ModelType
+    ): Promise<{
         explanation: string;
         examples: string[];
+        visualType?: string;
+        visualPrompt?: string;
         quizQuestion: { question: string; options: string[]; correctAnswer: number; explanation: string } | null;
     }> {
-        const prompt = `You are an expert AI tutor. A student has a doubt about a specific topic.
+        let curriculumStr = '';
+        if (curriculumContext) {
+            const { curriculumType, board, grade, exam, subject, topic } = curriculumContext;
+            if (curriculumType === 'school') {
+                curriculumStr = `Context: ${grade} student, ${board} Board, Subject: ${subject}, Topic: ${topic || 'General'}`;
+            } else if (curriculumType === 'competitive') {
+                curriculumStr = `Context: Preparing for ${exam}, Subject: ${subject}, Topic: ${topic || 'General'}`;
+            }
+        }
 
+        const prompt = `You are an expert AI tutor. A student has a doubt about a specific topic.
+${curriculumStr ? `\nCurriculum ${curriculumStr}` : ''}
 Topic Context: ${context}
 Student Question: ${question}
 
-Provide a clear, concise, and helpful explanation.
-If appropriate, include 2-3 real-world examples.
-Also, provide a single multiple-choice quiz question (with 4 options and the correct answer index 0-3) to verify their understanding.
+MANDATORY: EXPLAIN STRICTLY BASED ON SELECTED SUBJECT AND TOPIC.
+- No cross-topic, cross-subject, or out-of-syllabus visuals or explanations.
+- Do NOT introduce unrelated concepts, examples, or visuals outside the topic scope. All content must be directly, strictly, and exclusively related to the selected subject and topic only.
+
+MANDATORY: VISUAL-ONLY TEACHING (PRELOADED MODE) — STATIC VISUALS + SYNCHRONIZED VOICE.
+1. The student sees a standard static teaching visual for this topic (diagram, illustration, board-style visual). Static visuals must be available for every topic; no dynamic storytelling visuals or unrelated animations.
+2. Your Explanation MUST reference this visual and be synchronized with it (e.g., "As you can see in the diagram...").
+3. All visuals must be directly, strictly, and exclusively related to the selected topic only. No generic, decorative, or off-topic visuals.
+4. Do not invent new visual descriptions; assume the standard visual is present. This behavior is consistent across Curriculum and Competitive modes.
 
 Respond with only valid JSON, no markdown or extra text:
 {
@@ -246,6 +278,8 @@ Respond with only valid JSON, no markdown or extra text:
             return {
                 explanation: parsed.explanation ?? responseText,
                 examples: Array.isArray(parsed.examples) ? parsed.examples : [],
+                visualType: parsed.visualType,
+                visualPrompt: parsed.visualPrompt,
                 quizQuestion: parsed.quizQuestion ?? null,
             };
         } catch (e) {
@@ -258,21 +292,58 @@ Respond with only valid JSON, no markdown or extra text:
         }
     },
 
-    async generateTeachingContent(topic: string, modelOverride?: ModelType): Promise<{
+    async generateTeachingContent(
+        topic: string,
+        curriculumContext?: {
+            curriculumType?: string;
+            board?: string;
+            grade?: string;
+            exam?: string;
+            subject?: string;
+        },
+        modelOverride?: ModelType
+    ): Promise<{
         title: string;
-        sections: { title: string; content: string }[];
+        sections: { title: string; content: string; visualType?: string; visualPrompt?: string }[];
         summary: string;
     }> {
+        let curriculumStr = '';
+        if (curriculumContext) {
+            const { curriculumType, board, grade, exam, subject } = curriculumContext;
+            if (curriculumType === 'school') {
+                curriculumStr = `Context: ${grade} student, ${board} Board, Subject: ${subject}`;
+            } else if (curriculumType === 'competitive') {
+                curriculumStr = `Context: Preparing for ${exam}, Subject: ${subject}`;
+            }
+        }
+
         const prompt = `Generate a structured learning lesson for the topic: "${topic}".
+${curriculumStr ? `\nCurriculum ${curriculumStr}` : ''}
+
+MANDATORY: EXPLAIN STRICTLY BASED ON SELECTED SUBJECT AND TOPIC.
+- No cross-topic, cross-subject, or out-of-syllabus visuals or explanations.
+- Do NOT introduce unrelated concepts, examples, or visuals outside the topic scope. All content must be directly, strictly, and exclusively related to the selected subject and topic only.
+- Consistent across Curriculum and Competitive modes (mode-specific teaching style only). Static visuals must be available and implemented for every topic and every subject; no dynamic storytelling visuals or unrelated animations.
+
+MANDATORY: STATIC VISUALS + VOICE NARRATION SYNCHRONIZED WITH VISUALS.
+1. Use only static visuals: diagrams, illustrations, board-style visuals. Assume the user sees the standard visual for "${topic}".
+2. Your content must reference "the visual" or "the diagram" to guide the user. Voice narration must be synchronized with what is shown.
+3. Every section must have voice narration synchronized with what is shown.
+4. All visuals must be directly, strictly, and exclusively related to the selected topic only. No generic, off-topic, or dynamic storytelling visuals.
+5. Do NOT attempt to generate new visual prompts; the system uses preloaded assets only.
+
 Include a title, 3 sections with detailed content, and a final summary.
 
 Respond with only valid JSON:
 {
   "title": "...",
   "sections": [
-    { "title": "...", "content": "..." },
-    { "title": "...", "content": "..." },
-    { "title": "...", "content": "..." }
+    { 
+      "title": "...", 
+      "content": "...",
+      // Note: visualType/visualPrompt are NOT needed here, the system handles it.
+    },
+    ...
   ],
   "summary": "..."
 }`;
@@ -295,11 +366,71 @@ Respond with only valid JSON:
         }
     },
 
-    async generateQuiz(topic: string, context: string, modelOverride?: ModelType): Promise<{
+    /**
+     * Generate teaching content from a full client-built prompt (rich curriculum, 45+ min, etc.).
+     * Use when the frontend sends a complete prompt; returns parsed JSON as-is so spokenContent/durationMinutes are preserved.
+     */
+    async generateTeachingContentFromPrompt(
+        fullPrompt: string,
+        modelOverride?: ModelType
+    ): Promise<{
+        title: string;
+        sections: Array<{ title: string; content: string; spokenContent?: string; durationMinutes?: number; visualType?: string; visualPrompt?: string }>;
+        summary: string;
+    }> {
+        validatePrompt(fullPrompt);
+        const modelToUse = modelOverride ?? (doubtResolutionModel === 'mistral' && mistralClient ? 'mistral' : 'llama');
+        const responseText = await this.generateResponse(fullPrompt, modelToUse);
+
+        try {
+            const jsonMatch = responseText.match(/\{[\s\S]*\}/);
+            const jsonStr = jsonMatch ? jsonMatch[0] : responseText;
+            const parsed = JSON.parse(jsonStr);
+            return {
+                title: parsed.title ?? 'Lesson',
+                sections: Array.isArray(parsed.sections) ? parsed.sections : [],
+                summary: typeof parsed.summary === 'string' ? parsed.summary : '',
+            };
+        } catch (e) {
+            console.error('Failed to parse Teaching Content JSON:', e);
+            throw new Error('Failed to generate structured teaching content');
+        }
+    },
+
+    async generateQuiz(
+        topic: string,
+        context: string,
+        curriculumContext?: {
+            curriculumType?: string;
+            board?: string;
+            grade?: string;
+            exam?: string;
+            subject?: string;
+        },
+        modelOverride?: ModelType
+    ): Promise<{
         questions: { question: string; options: string[]; correctAnswer: number; explanation: string }[];
     }> {
+        let curriculumStr = '';
+        if (curriculumContext) {
+            const { curriculumType, board, grade, exam, subject } = curriculumContext;
+            if (curriculumType === 'school') {
+                curriculumStr = `Context: ${grade} student, ${board} Board, Subject: ${subject}`;
+            } else if (curriculumType === 'competitive') {
+                curriculumStr = `Context: Preparing for ${exam}, Subject: ${subject}`;
+            }
+        }
+
         const prompt = `Generate a 5-question multiple choice quiz about "${topic}" based on this context: "${context}".
-Each question should have 4 options and a clear explanation for the correct answer.
+${curriculumStr ? `\nCurriculum ${curriculumStr}` : ''}
+Each question should have 4 options and a clear explanation for the correct answer. Match the difficulty to the student's level.
+
+MANDATORY: EXPLAIN STRICTLY BASED ON SELECTED SUBJECT AND TOPIC.
+- No cross-topic, cross-subject, or out-of-syllabus content. All questions must be strictly within the topic scope. Do NOT introduce unrelated concepts or examples beyond the selected scope. Consistent across Curriculum and Competitive modes.
+
+MANDATORY: VISUAL-FIRST ASSESSMENT (PRELOADED) — STATIC VISUALS ONLY.
+Assume the standard static topic visual (diagram, illustration, board-style) is visible for this topic. No dynamic storytelling or unrelated animations.
+Questions should test understanding of the concept shown in standard diagrams/visuals for this topic only. All visuals must be directly and exclusively related to the selected subject and topic.
 
 Respond with only valid JSON:
 {
@@ -321,7 +452,14 @@ Respond with only valid JSON:
             const jsonStr = jsonMatch ? jsonMatch[0] : responseText;
             const parsed = JSON.parse(jsonStr);
             return {
-                questions: Array.isArray(parsed.questions) ? parsed.questions : [],
+                questions: Array.isArray(parsed.questions) ? parsed.questions.map((q: any) => ({
+                    question: q.question,
+                    options: q.options,
+                    correctAnswer: q.correctAnswer,
+                    explanation: q.explanation,
+                    visualType: q.visualType,
+                    visualPrompt: q.visualPrompt,
+                })) : [],
             };
         } catch (e) {
             console.error('Failed to parse Quiz JSON:', e);

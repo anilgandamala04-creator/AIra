@@ -1,116 +1,74 @@
-# AI Tutor - Flutter Mobile & Desktop Application
+# AIra Flutter App (Mobile & Desktop)
 
-A comprehensive Flutter port of the AI Tutor web application, supporting iOS, Android, Windows, macOS, and Linux.
+The Flutter app is the mobile/desktop counterpart to the main **Vite/React web app** (AIra). The primary app is the web app; this Flutter app can be built and run for iOS, Android, and desktop targets.
 
-## 🚀 Features
+## Prerequisites
 
-- **Cross-Platform**: iOS, Android, Windows, macOS, Linux
-- **Interactive Teaching**: 3-panel layout with Chat, Classroom Board, and Studio
-- **Voice Narration**: Text-to-Speech (TTS) support
-- **Resource Generation**: Notes, Mind Maps, and Flashcards
-- **Analytics Dashboard**: Track learning progress
-- **Firebase Integration**: Authentication, Analytics, Firestore
-- **Internationalization**: Multi-language support
-- **State Management**: Riverpod for reactive state management
+- Flutter SDK (stable): [Install Flutter](https://docs.flutter.dev/get-started/install)
+- For Android: Android Studio / SDK
+- For iOS: Xcode (macOS only)
+- For Windows: Visual Studio with Desktop development with C++
 
-## 📦 Installation
+## Run the app
 
-1. **Install Flutter SDK** (3.0.0 or higher)
-   ```bash
-   flutter --version
-   ```
+From this directory (`AIra/flutter_app`):
 
-2. **Install Dependencies**
-   ```bash
-   cd flutter_app
-   flutter pub get
-   ```
-
-3. **Setup Firebase**
-   - Follow Firebase setup instructions in `FIREBASE_SETUP.md`
-   - Add `google-services.json` (Android) and `GoogleService-Info.plist` (iOS)
-
-## 🔧 Development
-
-### Run on Mobile
 ```bash
-# Android
+# Get dependencies
+flutter pub get
+
+# Run on connected device or emulator (defaults to first available)
 flutter run
 
-# iOS
-flutter run -d ios
+# Run on a specific device
+flutter devices
+flutter run -d <device_id>
+
+# Run on Chrome (web)
+flutter run -d chrome
 ```
 
-### Run on Desktop
+## Build
+
 ```bash
-# Windows
-flutter run -d windows
+# Debug APK (Android)
+flutter build apk --debug
 
-# macOS
-flutter run -d macos
-
-# Linux
-flutter run -d linux
-```
-
-### Build for Production
-```bash
-# Android APK
+# Release APK (Android) — requires signing config for production
 flutter build apk --release
 
-# Android App Bundle
+# Release App Bundle for Play Store
 flutter build appbundle --release
 
-# iOS
+# iOS (macOS only)
 flutter build ios --release
 
 # Windows
-flutter build windows --release
-
-# macOS
-flutter build macos --release
-
-# Linux
-flutter build linux --release
+flutter build windows
 ```
 
-## 📁 Project Structure
+## Configuration TODOs (before production)
 
-```
-lib/
-├── main.dart                 # App entry point
-├── models/                   # Data models
-├── providers/               # Riverpod providers (state management)
-├── screens/                  # UI screens/pages
-├── widgets/                  # Reusable widgets
-├── services/                 # Business logic & API services
-├── utils/                    # Utilities & helpers
-├── constants/                # App constants
-└── localization/             # i18n files
-```
+1. **Fonts (pubspec.yaml)**  
+   Inter font is commented out. To use it:
+   - Add font files under `assets/fonts/` (e.g. `Inter-Regular.ttf`, `Inter-Medium.ttf`, `Inter-SemiBold.ttf`, `Inter-Bold.ttf`).
+   - Uncomment the `fonts` block in `pubspec.yaml` under `flutter:`.
 
-## 🛠 Tech Stack
+2. **Android applicationId (android/app/build.gradle.kts)**  
+   Replace `com.example.ai_tutor` with your own package ID (e.g. `com.airaedtech.aitutor`).
 
-- **Framework**: Flutter 3.0+
-- **State Management**: Riverpod
-- **Navigation**: GoRouter
-- **Backend**: Firebase (Auth, Firestore, Analytics)
-- **Local Storage**: Hive + SharedPreferences
-- **i18n**: Easy Localization
-- **UI**: Material Design 3
+3. **Android signing (android/app/build.gradle.kts)**  
+   For release builds, add a signing config (keystore) and reference it in `buildTypes.release.signingConfig`. See [Flutter Android signing](https://docs.flutter.dev/deployment/android#signing-the-app).
 
-## 📱 Platform Support
+4. **Windows (optional)**  
+   If you see a CMake or Windows SDK TODO in the Windows build, ensure Visual Studio has “Desktop development with C++” and the Windows 10/11 SDK installed.
 
-- ✅ Android (API 21+)
-- ✅ iOS (iOS 12+)
-- ✅ Windows (Windows 10+)
-- ✅ macOS (macOS 10.14+)
-- ✅ Linux (Ubuntu 18.04+)
+## Root script (optional)
 
-## 🔐 Firebase Setup
+From the **project root** (`Project AIra`), you can add:
 
-See `FIREBASE_SETUP.md` for detailed Firebase configuration instructions.
+- `"flutter:get": "cd AIra/flutter_app && flutter pub get"`
+- `"flutter:run": "cd AIra/flutter_app && flutter run"`
+- `"flutter:build:apk": "cd AIra/flutter_app && flutter build apk --release"`
 
-## 📝 License
-
-Private - All rights reserved
+Add these to the root `package.json` scripts if you want to drive the Flutter app from the monorepo root.

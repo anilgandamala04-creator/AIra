@@ -218,6 +218,12 @@ export const overlayVariants: Variants = {
     }
 };
 
+/** Transition for overlay/backdrop (used with overlayVariants or AnimatePresence) */
+export const overlayTransition: Transition = {
+    duration: 0.3,
+    ease: [0.25, 0.1, 0.25, 1]
+};
+
 export const modalVariants: Variants = {
     initial: {
         opacity: 0,
@@ -397,9 +403,12 @@ export const DURATION_SLOW = 0.4;
 export const EASE_DEFAULT = [0.4, 0, 0.2, 1] as const;
 export const EASE_OUT = [0, 0, 0.2, 1] as const;
 export const EASE_IN_OUT = [0.4, 0, 0.6, 1] as const;
-export const TRANSITION_DEFAULT = {
+/** Transition with duration and ease (for use where .duration / .ease are accessed) */
+export interface DurationEaseTransition { duration: number; ease: number[] | string; }
+export const TRANSITION_FAST: DurationEaseTransition = { duration: 0.15, ease: [0.25, 0.1, 0.25, 1] };
+export const TRANSITION_DEFAULT: DurationEaseTransition = {
   duration: DURATION_NORMAL,
-  ease: EASE_DEFAULT
+  ease: [...EASE_DEFAULT]
 };
 
 export const staggerContainer = {

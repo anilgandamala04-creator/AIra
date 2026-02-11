@@ -5,7 +5,7 @@ import reactRefresh from 'eslint-plugin-react-refresh'
 import tseslint from 'typescript-eslint'
 
 export default tseslint.config(
-  { ignores: ['dist', 'backend/**', 'functions/**', 'supabase/**', 'flutter_app/**'] },
+  { ignores: ['dist', 'backend/**', 'functions/**', 'flutter_app/**'] },
   {
     files: ['**/*.{ts,tsx}'],
     extends: [

@@ -1,33 +1,53 @@
 import { create } from 'zustand';
-import type { UserProfile, LearningStyle, LearningPreferences, Profession } from '../types';
+import type {
+    UserProfile,
+    LearningStyle,
+    LearningPreferences,
+    CurriculumType,
+    SchoolBoard,
+    ExamType
+} from '../types';
 import { useAuthStore } from './authStore';
-import { updateUserProfile as syncProfileToBackend } from '../services/backendService';
+import { updateUserProfileWithOfflineQueue as syncProfileToBackend } from '../services/backendWithOffline';
 import { realTimeEvents, EVENTS } from '../utils/realTimeSync';
-import { professions } from '../data/professions';
 
 interface UserStore {
     profile: UserProfile | null;
     onboardingStep: number;
-    selectedProfession: Profession | null;
-    selectedSubProfession: string | null;
-    /** True after first Firestore user-data snapshot (avoids wrong redirect to onboarding on refresh). */
+
+    // New Curriculum State
+    curriculumType: CurriculumType | null;
+    selectedBoard: SchoolBoard | null;
+    selectedGrade: string | null;
+    selectedExam: ExamType | null;
+    selectedSubject: string | null;
+    /** Competitive mode: include PYQ (last 10 years). */
+    includePYQ: boolean;
+
+    /** True after first user-data load from backend (avoids wrong redirect to onboarding on refresh). */
     userDataLoaded: boolean;
 
     // Actions
     setProfile: (profile: UserProfile) => void;
     setUserDataLoaded: (loaded: boolean) => void;
-    /** Set a minimal profile and complete onboarding for guest/demo mode. No backend sync. */
     setGuestDemoProfile: (userId: string, displayName: string) => void;
     updateProfile: (updates: Partial<UserProfile>) => void;
     setOnboardingStep: (step: number) => void;
-    selectProfession: (profession: Profession | null) => void;
-    selectSubProfession: (subProfession: string | null) => void;
+
+    // New Curriculum Actions
+    setCurriculumType: (type: CurriculumType | null) => void;
+    setSelectedBoard: (board: SchoolBoard | null) => void;
+    setSelectedGrade: (grade: string | null) => void;
+    setSelectedExam: (exam: ExamType | null) => void;
+    setSelectedSubject: (subject: string | null) => void;
+    setIncludePYQ: (value: boolean) => void;
+
     updateLearningStyle: (style: Partial<LearningStyle>) => void;
     updateLearningPreferences: (prefs: Partial<LearningPreferences>) => void;
-    completeOnboarding: (overrides?: { subject?: string; currentTopic?: string }) => void;
+    completeOnboarding: (overrides?: Partial<UserProfile>) => void;
     resetOnboarding: () => void;
-    /** Clear profile (e.g. on logout) to avoid showing stale user data. */
     clearProfile: () => void;
+    toggleFavoriteTopic: (topicId: string) => void;
 }
 
 const defaultLearningStyle: LearningStyle = {
@@ -56,22 +76,33 @@ function syncProfileIfLoggedIn(profile: UserProfile | null) {
 export const useUserStore = create<UserStore>()((set) => ({
     profile: null,
     onboardingStep: 0,
-    selectedProfession: null,
-    selectedSubProfession: null,
+
+    // New Curriculum State
+    curriculumType: null,
+    selectedBoard: null,
+    selectedGrade: null,
+    selectedExam: null,
+    selectedSubject: null,
+    includePYQ: false,
+
     userDataLoaded: false,
 
     setUserDataLoaded: (loaded) => set({ userDataLoaded: loaded }),
 
     setProfile: (profile) => {
-        // Initialize selectedProfession and selectedSubProfession from profile if not already set
-        set((state) => {
+        set(() => {
             const updates: Partial<UserStore> = { profile };
-            if (profile && !state.selectedProfession && profile.profession) {
-                updates.selectedProfession = profile.profession;
+
+            // Sync new curriculum fields
+            if (profile) {
+                updates.curriculumType = profile.curriculumType || null;
+                updates.selectedBoard = profile.board || null;
+                updates.selectedGrade = profile.grade || null;
+                updates.selectedExam = profile.exam || null;
+                updates.selectedSubject = profile.subject || null;
+                updates.includePYQ = profile.includePYQ ?? false;
             }
-            if (profile && state.selectedSubProfession === null && profile.subProfession) {
-                updates.selectedSubProfession = profile.subProfession;
-            }
+
             syncProfileIfLoggedIn(profile);
             return updates;
         });
@@ -80,65 +111,66 @@ export const useUserStore = create<UserStore>()((set) => ({
     updateProfile: (updates) => set((state) => {
         const next = state.profile ? { ...state.profile, ...updates } : null;
         syncProfileIfLoggedIn(next);
-        // Sync selectedProfession and selectedSubProfession in real time when profile changes
+
         const result: Partial<UserStore> = { profile: next };
-        if (updates.profession !== undefined) {
-            result.selectedProfession = updates.profession;
-            // Clear selectedSubProfession if profession changes to a different one
-            if (updates.profession === null || updates.profession?.id !== state.profile?.profession?.id) {
-                result.selectedSubProfession = null;
-            }
-            // Emit real-time event immediately for instant UI updates
-            realTimeEvents.emit(EVENTS.PROFESSION_CHANGE, updates.profession);
-        }
-        if (updates.subProfession !== undefined) {
-            result.selectedSubProfession = updates.subProfession;
-            // Emit real-time event immediately for instant UI updates
-            realTimeEvents.emit(EVENTS.SUB_PROFESSION_CHANGE, updates.subProfession);
-        }
-        // Emit profile update event
-        if (next) {
-            realTimeEvents.emit(EVENTS.PROFILE_UPDATE, next);
-        }
+        // Keep top-level curriculum state in sync so all screens reflect immediately
+        if (updates.curriculumType !== undefined) result.curriculumType = updates.curriculumType ?? null;
+        if (updates.board !== undefined) result.selectedBoard = updates.board ?? null;
+        if (updates.grade !== undefined) result.selectedGrade = updates.grade ?? null;
+        if (updates.exam !== undefined) result.selectedExam = updates.exam ?? null;
+        if (updates.subject !== undefined) result.selectedSubject = updates.subject ?? null;
+        if (updates.includePYQ !== undefined) result.includePYQ = updates.includePYQ ?? false;
+
+        if (next) realTimeEvents.emit(EVENTS.PROFILE_UPDATE, next);
         return result;
     }),
 
     setOnboardingStep: (step) => set({ onboardingStep: step }),
 
-    selectProfession: (profession) => set((state) => {
-        // Also update profile.profession for full sync
-        const profileUpdate = state.profile
-            ? { ...state.profile, profession, subProfession: null }
-            : null;
-        if (profileUpdate) syncProfileIfLoggedIn(profileUpdate);
-        // Emit real-time event immediately for instant UI updates
-        realTimeEvents.emit(EVENTS.PROFESSION_CHANGE, profession);
-        if (profileUpdate) {
-            realTimeEvents.emit(EVENTS.PROFILE_UPDATE, profileUpdate);
-        }
-        return {
-            selectedProfession: profession,
-            selectedSubProfession: null,
-            profile: profileUpdate,
+    // Curriculum actions: update both top-level state and profile so the entire app reflects changes immediately (no refresh)
+    setCurriculumType: (type) => set((state) => {
+        // Reset mode-specific fields when type changes to prevent cross-mode leak
+        const isChanging = state.curriculumType !== type;
+        const updates: Partial<UserStore> = {
+            curriculumType: type,
+            profile: state.profile ? {
+                ...state.profile,
+                curriculumType: type ?? undefined,
+                // Reset mode-specific profile fields if type changed
+                ...(isChanging ? { board: undefined, grade: undefined, exam: undefined, subject: undefined, includePYQ: false } : {})
+            } : null,
         };
-    }),
 
-    selectSubProfession: (subProfession) => set((state) => {
-        // Also update profile.subProfession for full sync
-        const profileUpdate = state.profile
-            ? { ...state.profile, subProfession }
-            : null;
-        if (profileUpdate) syncProfileIfLoggedIn(profileUpdate);
-        // Emit real-time event immediately for instant UI updates
-        realTimeEvents.emit(EVENTS.SUB_PROFESSION_CHANGE, subProfession);
-        if (profileUpdate) {
-            realTimeEvents.emit(EVENTS.PROFILE_UPDATE, profileUpdate);
+        if (isChanging) {
+            updates.selectedBoard = null;
+            updates.selectedGrade = null;
+            updates.selectedExam = null;
+            updates.selectedSubject = null;
+            updates.includePYQ = false;
         }
-        return {
-            selectedSubProfession: subProfession,
-            profile: profileUpdate,
-        };
+
+        return updates;
     }),
+    setSelectedBoard: (board) => set((state) => ({
+        selectedBoard: board,
+        profile: state.profile ? { ...state.profile, board: board ?? undefined } : null,
+    })),
+    setSelectedGrade: (grade) => set((state) => ({
+        selectedGrade: grade,
+        profile: state.profile ? { ...state.profile, grade: grade ?? undefined } : null,
+    })),
+    setSelectedExam: (exam) => set((state) => ({
+        selectedExam: exam,
+        profile: state.profile ? { ...state.profile, exam: exam ?? undefined } : null,
+    })),
+    setSelectedSubject: (subject) => set((state) => ({
+        selectedSubject: subject,
+        profile: state.profile ? { ...state.profile, subject: subject ?? undefined } : null,
+    })),
+    setIncludePYQ: (value) => set((state) => ({
+        includePYQ: value,
+        profile: state.profile ? { ...state.profile, includePYQ: value } : null,
+    })),
 
     updateLearningStyle: (style) => set((state) => {
         const next = state.profile ? {
@@ -163,27 +195,33 @@ export const useUserStore = create<UserStore>()((set) => ({
         const authUser = useAuthStore.getState().user;
 
         // Build the complete profile with all onboarding data.
-        // Use overrides when profile is null (first-time users) since updateProfile is a no-op then.
         const profileData = {
-            profession: state.selectedProfession,
-            subProfession: state.selectedSubProfession,
-            subject: overrides?.subject ?? state.profile?.subject,
-            currentTopic: overrides?.currentTopic ?? state.profile?.currentTopic,
+            curriculumType: state.curriculumType,
+            board: state.selectedBoard,
+            grade: state.selectedGrade,
+            exam: state.selectedExam,
+            subject: state.selectedSubject,
+            currentTopic: state.profile?.currentTopic,
+            includePYQ: state.includePYQ,
             onboardingCompleted: true,
+            ...overrides,
         };
 
         if (!state.profile) {
-            // Create new profile for first-time user
+            // Create new profile for first-time user (include all curriculum fields from onboarding)
             const newProfile: UserProfile = {
                 userId: authUserId ?? 'user_' + Date.now(),
                 name: authUser?.name ?? 'User',
                 email: authUser?.email ?? '',
                 displayName: authUser?.displayName ?? 'User',
                 timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-                profession: profileData.profession,
-                subProfession: profileData.subProfession,
-                subject: profileData.subject,
-                currentTopic: profileData.currentTopic,
+                curriculumType: profileData.curriculumType ?? undefined,
+                board: profileData.board ?? undefined,
+                grade: profileData.grade ?? undefined,
+                exam: profileData.exam ?? undefined,
+                subject: profileData.subject ?? undefined,
+                currentTopic: profileData.currentTopic ?? undefined,
+                includePYQ: profileData.includePYQ ?? false,
                 experienceLevel: 'beginner',
                 verificationStatus: 'none',
                 role: authUser?.role ?? 'student',
@@ -213,22 +251,26 @@ export const useUserStore = create<UserStore>()((set) => ({
 
     resetOnboarding: () => set({
         onboardingStep: 0,
-        selectedProfession: null,
-        selectedSubProfession: null,
+        curriculumType: null,
+        selectedBoard: null,
+        selectedGrade: null,
+        selectedExam: null,
+        selectedSubject: null,
+        includePYQ: false,
     }),
 
     clearProfile: () => set({
         profile: null,
-        selectedProfession: null,
-        selectedSubProfession: null,
+        curriculumType: null,
+        selectedBoard: null,
+        selectedGrade: null,
+        selectedExam: null,
+        selectedSubject: null,
+        includePYQ: false,
         userDataLoaded: false,
     }),
 
     setGuestDemoProfile: (userId, displayName) => {
-        const profession = professions[0] ?? null;
-        const subProfession = profession?.subProfessions?.[0];
-        const subject = subProfession?.subjects?.[0];
-        const topic = subject?.topics?.[0];
         const guestProfile: UserProfile = {
             userId,
             name: displayName,
@@ -238,10 +280,11 @@ export const useUserStore = create<UserStore>()((set) => ({
             role: 'student',
             plan: 'simple',
             onboardingCompleted: true,
-            profession,
-            subProfession: subProfession?.id ?? null,
-            subject: subject?.id,
-            currentTopic: topic?.id,
+            curriculumType: 'school',
+            board: 'Telangana State Board',
+            grade: 'Inter 1st Year',
+            subject: 'History',
+            currentTopic: 'ancient-india-intro',
             experienceLevel: 'beginner',
             verificationStatus: 'none',
             learningStyle: defaultLearningStyle,
@@ -256,8 +299,22 @@ export const useUserStore = create<UserStore>()((set) => ({
         set({
             profile: guestProfile,
             onboardingStep: -1,
-            selectedProfession: profession,
-            selectedSubProfession: subProfession?.id ?? null,
+            curriculumType: 'school',
+            selectedBoard: 'Telangana State Board',
+            selectedGrade: 'Inter 1st Year',
+            selectedSubject: 'History',
+        });
+    },
+
+    toggleFavoriteTopic: (topicId) => {
+        set((state) => {
+            const profile = state.profile;
+            if (!profile) return {};
+            const fav = profile.favoriteTopicIds ?? [];
+            const next = fav.includes(topicId) ? fav.filter((id) => id !== topicId) : [...fav, topicId];
+            const updated = { ...profile, favoriteTopicIds: next };
+            syncProfileIfLoggedIn(updated);
+            return { profile: updated };
         });
     },
 }));

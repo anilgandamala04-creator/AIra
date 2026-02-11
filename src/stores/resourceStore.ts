@@ -1,44 +1,60 @@
 import { create } from 'zustand';
 import type { GeneratedNote, MindMap, MindMapNode, Flashcard, NoteSection } from '../types';
+import { generateUUID } from '../utils/id';
+import { computeNextReviewUpdates } from '../utils/flashcardSpacedRepetition';
 import { toast } from './toastStore';
-import { generateContent } from '../services/aiApi';
+import { aiIntegration } from '../services/aiIntegration';
 import type { AiModelType } from '../services/aiApi';
 import { useSettingsStore } from './settingsStore';
 import { useAuthStore } from './authStore';
 import { useUserStore } from './userStore';
 import { useTeachingStore } from './teachingStore';
-import { saveNote, saveFlashcards, saveMindMap } from '../services/backendService';
+import { saveFlashcards, saveMindMap, deleteFlashcard, deleteMindMap } from '../services/backendService';
+import { saveNoteWithOfflineQueue, updateNoteWithOfflineQueue, deleteNoteWithOfflineQueue } from '../services/backendWithOffline';
 import { realTimeEvents, EVENTS } from '../utils/realTimeSync';
+import { logAppEvent, ANALYTICS_EVENTS } from '../lib/analytics';
+
+const UNDO_DELAY_MS = 5000;
+
+type PendingDelete =
+    | { type: 'note'; data: GeneratedNote }
+    | { type: 'mindmap'; data: MindMap }
+    | { type: 'flashcardSet'; data: Flashcard[]; sessionId: string };
+const pendingDeletes = new Map<string, { payload: PendingDelete; timeoutId: ReturnType<typeof setTimeout> }>();
 
 /**
  * Get current domain context for resource generation
- * Ensures all generated resources stay within the user's professional domain
+ * Ensures all generated resources stay within the user's academic domain
  */
 function getDomainContextForResources(): {
-    professionId?: string;
-    professionName?: string;
-    subProfessionName?: string;
+    curriculumType?: string;
+    board?: string;
+    grade?: string;
+    exam?: string;
+    subjectName?: string;
 } {
     const userState = useUserStore.getState();
     const teachingState = useTeachingStore.getState();
     const session = teachingState.currentSession;
 
     // Prefer session context (it has the most specific domain info)
-    if (session?.professionName) {
+    if (session?.curriculumType) {
         return {
-            professionId: session.professionId,
-            professionName: session.professionName,
-            subProfessionName: session.subProfessionName,
+            curriculumType: session.curriculumType,
+            board: session.board,
+            grade: session.grade,
+            exam: session.exam,
+            subjectName: session.subjectName,
         };
     }
 
     // Fall back to user profile
     return {
-        professionId: userState.selectedProfession?.id || userState.profile?.profession?.id,
-        professionName: userState.selectedProfession?.name || userState.profile?.profession?.name,
-        subProfessionName: userState.selectedSubProfession
-            ? userState.selectedProfession?.subProfessions?.find(sp => sp.id === userState.selectedSubProfession)?.name
-            : undefined,
+        curriculumType: userState.curriculumType || undefined,
+        board: userState.selectedBoard || undefined,
+        grade: userState.selectedGrade || undefined,
+        exam: userState.selectedExam || undefined,
+        subjectName: userState.selectedSubject || undefined,
     };
 }
 
@@ -46,23 +62,23 @@ function getDomainContextForResources(): {
  * Build domain constraint for prompts
  */
 function buildDomainConstraint(): string {
-    const { professionName, subProfessionName } = getDomainContextForResources();
+    const { curriculumType, board, grade, exam, subjectName } = getDomainContextForResources();
 
-    if (!professionName) return '';
+    if (!curriculumType) return '';
 
-    const domainPath = subProfessionName
-        ? `${professionName} (${subProfessionName})`
-        : professionName;
+    const domainPath = curriculumType === 'school'
+        ? `${board} Grade ${grade} - ${subjectName}`
+        : `${exam} - ${subjectName}`;
 
-    return `IMPORTANT DOMAIN CONSTRAINT: All content MUST be relevant to ${domainPath}. Use only ${professionName}-appropriate terminology, examples, and explanations. Do NOT include content from other professional domains.\n\n`;
+    return `IMPORTANT DOMAIN CONSTRAINT: All content MUST be relevant to ${domainPath}. Use only grade-appropriate terminology, examples, and explanations. Do NOT include content from other academic or professional domains.\n\n`;
 }
 
-// Helper to sync to Firestore if user is logged in (not guest)
+// Helper to sync to backend if user is logged in (not guest)
 async function syncNoteToBackend(note: GeneratedNote): Promise<void> {
     const { user, isGuest } = useAuthStore.getState();
     if (user?.id && !isGuest) {
         try {
-            await saveNote(user.id, note);
+            await saveNoteWithOfflineQueue(user.id, note);
         } catch (e) {
             console.error('Failed to sync note to backend:', e);
         }
@@ -129,17 +145,37 @@ interface ResourceStore {
     // Notes
     notes: GeneratedNote[];
     isGeneratingNotes: boolean;
+    lastNotesError: string | null;
     generateNotes: (sessionId: string, topicName: string, content: string[]) => Promise<GeneratedNote>;
+    clearNotesError: () => void;
+    removeNote: (noteId: string) => Promise<void>;
+    removeNoteWithUndo: (note: GeneratedNote) => void;
+    restoreNote: (noteId: string) => boolean;
+    updateNote: (noteId: string, updates: Partial<GeneratedNote>) => Promise<void>;
+    /** Save a highlighted snippet from a lesson step as a new note. */
+    addNoteFromHighlight: (params: { topicName: string; sessionId: string; stepTitle: string; stepIndex: number; snippetText: string }) => void;
 
     // Mind Maps
     mindMaps: MindMap[];
     isGeneratingMindMap: boolean;
+    lastMindMapError: string | null;
     generateMindMap: (sessionId: string, topicName: string, concepts: string[]) => Promise<MindMap>;
+    clearMindMapError: () => void;
+    removeMindMap: (mapId: string) => Promise<void>;
+    removeMindMapWithUndo: (map: MindMap) => void;
+    restoreMindMap: (mapId: string) => boolean;
 
     // Flashcards
     flashcards: Flashcard[];
     isGeneratingFlashcards: boolean;
+    lastFlashcardsError: string | null;
     generateFlashcards: (sessionId: string, content?: string[]) => Promise<Flashcard[]>;
+    generateFlashcardsFromNote: (note: GeneratedNote) => Promise<Flashcard[]>;
+    clearFlashcardsError: () => void;
+    removeFlashcard: (cardId: string) => Promise<void>;
+    removeFlashcardSetWithUndo: (sessionId: string, cards: Flashcard[]) => void;
+    restoreFlashcardSet: (sessionId: string) => boolean;
+    addImportedFlashcards: (sessionId: string, rows: { question: string; answer: string; tags?: string[] }[]) => Flashcard[];
 
     // Flashcard review
     currentReviewIndex: number;
@@ -162,7 +198,7 @@ const generateMockNotes = (sessionId: string, topicName: string, content: string
     const sections = generateNoteSections(topicName, fullContent, keyConcepts, mainPoints);
 
     return {
-        id: `note_${Date.now()}`,
+        id: generateUUID(),
         sessionId,
         topicName,
         title: `${topicName} - Comprehensive Study Notes`,
@@ -247,9 +283,9 @@ function generateNoteSections(topicName: string, _content: string, keyConcepts: 
     // Section 4: Applications & Examples
     sections.push({
         heading: 'Applications & Real-World Examples',
-        content: `${topicName} has numerous practical applications. ${mainPoints[5] || `These concepts are used in various professional settings.`} Understanding how to apply this knowledge is essential for success.`,
+        content: `${topicName} has numerous practical applications. ${mainPoints[5] || `These concepts are used in various academic and real-world settings.`} Understanding how to apply this knowledge is essential for success.`,
         highlights: [
-            'Professional applications',
+            'Practical applications',
             'Real-world scenarios',
             'Practical implementation'
         ],
@@ -310,7 +346,7 @@ function buildMindMapFromAi(sessionId: string, topicName: string, parsed: { cent
         return node;
     });
     return {
-        id: `mindmap_${Date.now()}`,
+        id: generateUUID(),
         sessionId,
         topicName,
         centralTopic: central,
@@ -347,7 +383,7 @@ const generateMockMindMap = (sessionId: string, topicName: string, concepts?: st
     ];
 
     return {
-        id: `mindmap_${Date.now()}`,
+        id: generateUUID(),
         sessionId,
         topicName,
         centralTopic: topicName,
@@ -591,8 +627,8 @@ function generateGenericFlashcards(sessionId: string, baseTime: number): Flashca
 // Helper to create a flashcard
 function createFlashcard(
     sessionId: string,
-    baseTime: number,
-    index: number,
+    _baseTime: number,
+    _index: number,
     question: string,
     answer: string,
     explanation: string,
@@ -601,7 +637,7 @@ function createFlashcard(
     tags: string[]
 ): Flashcard {
     return {
-        id: `fc_${baseTime}_${index}`,
+        id: generateUUID(),
         sessionId,
         question,
         answer,
@@ -632,10 +668,13 @@ function extractFlashcardConcepts(content: string[]): string[] {
 export const useResourceStore = create<ResourceStore>((set, get) => ({
     notes: [],
     isGeneratingNotes: false,
+    lastNotesError: null,
     mindMaps: [],
     isGeneratingMindMap: false,
+    lastMindMapError: null,
     flashcards: [],
     isGeneratingFlashcards: false,
+    lastFlashcardsError: null,
     currentReviewIndex: 0,
 
     generateNotes: async (sessionId, topicName, content) => {
@@ -646,7 +685,7 @@ export const useResourceStore = create<ResourceStore>((set, get) => ({
             throw new Error('Notes generation already in progress');
         }
 
-        set({ isGeneratingNotes: true });
+        set({ isGeneratingNotes: true, lastNotesError: null });
 
         try {
             // Validate inputs
@@ -657,13 +696,15 @@ export const useResourceStore = create<ResourceStore>((set, get) => ({
             const model: AiModelType = useSettingsStore.getState().settings.aiTutor?.preferredAiModel ?? 'llama';
             const fullContent = content.join('\n\n');
             const domainConstraint = buildDomainConstraint();
-            const { professionName } = getDomainContextForResources();
-            const domainContext = professionName ? ` for ${professionName} students` : '';
-            const prompt = `${domainConstraint}You are an expert tutor. Generate comprehensive study notes${domainContext} for the topic "${topicName}". Base your notes on this content:\n\n${fullContent.slice(0, 4000)}\n\nOutput clear sections using markdown: ## Section Title followed by paragraph text. Use 3-5 sections. ${professionName ? `Ensure all terminology and examples are appropriate for ${professionName} professionals.` : ''} No code blocks or extra formatting.`;
-            const { content: aiText } = await generateContent(prompt, model);
+            const { subjectName, grade, exam } = getDomainContextForResources();
+            const domainContext = subjectName ? ` for ${subjectName} (${grade || exam || ''})` : '';
+            const prompt = `${domainConstraint}You are an expert tutor. Generate comprehensive study notes${domainContext} for the topic "${topicName}". Base your notes on this content:\n\n${fullContent.slice(0, 4000)}\n\nOutput clear sections using markdown: ## Section Title followed by paragraph text. Use 3-5 sections. ${subjectName ? `Ensure all terminology and examples are appropriate for ${subjectName}.` : ''} No code blocks or extra formatting.`;
+            const result = await aiIntegration.generateContent(prompt, { model, retries: 3 });
+            const aiText = result.success && result.data ? result.data.content : '';
+            if (!aiText) throw new Error(result.error || 'Failed to generate notes.');
             const sections = parseNoteSectionsFromMarkdown(aiText);
             const note: GeneratedNote = {
-                id: `note_${Date.now()}`,
+                id: generateUUID(),
                 sessionId,
                 topicName,
                 title: `${topicName} - Study Notes`,
@@ -689,6 +730,7 @@ export const useResourceStore = create<ResourceStore>((set, get) => ({
                 console.error('Failed to sync note to backend:', e);
                 // Note: State is already updated, so UI shows the note even if sync fails
             });
+            logAppEvent(ANALYTICS_EVENTS.NOTE_GENERATED, { sessionId, topicName, sections: note.sections.length });
             toast.success('Notes generated successfully');
             return note;
         } catch (error) {
@@ -696,6 +738,8 @@ export const useResourceStore = create<ResourceStore>((set, get) => ({
             const errorMessage = error instanceof Error ? error.message : 'Unknown error';
             const isNetworkError = errorMessage.includes('Network') ||
                 errorMessage.includes('backend') ||
+                errorMessage.includes('not reachable') ||
+                errorMessage.includes('Start it with') ||
                 errorMessage.includes('timeout') ||
                 errorMessage.includes('Failed to fetch');
 
@@ -718,25 +762,28 @@ export const useResourceStore = create<ResourceStore>((set, get) => ({
                     syncNoteToBackend(note).catch(e => {
                         console.error('Failed to sync note to backend:', e);
                     });
+                    logAppEvent(ANALYTICS_EVENTS.NOTE_GENERATED, { sessionId, topicName, isFallback: true });
                     toast.success('Notes generated successfully');
                     return note;
                 } catch (fallbackError) {
                     console.error('Failed to generate fallback notes:', fallbackError);
-                    set({ isGeneratingNotes: false });
                     const userMessage = isNetworkError
                         ? 'Unable to connect to AI service. Please check your connection and try again.'
                         : 'Failed to generate notes. Please try again.';
+                    set({ isGeneratingNotes: false, lastNotesError: userMessage });
                     toast.error(userMessage);
                     throw fallbackError;
                 }
             } else {
                 // For validation or other non-network errors, don't use fallback
-                set({ isGeneratingNotes: false });
+                set({ isGeneratingNotes: false, lastNotesError: errorMessage || 'Failed to generate notes. Please try again.' });
                 toast.error(errorMessage || 'Failed to generate notes. Please try again.');
                 throw error;
             }
         }
     },
+
+    clearNotesError: () => set({ lastNotesError: null }),
 
     generateMindMap: async (sessionId, topicName, concepts) => {
         // Prevent concurrent generation
@@ -746,7 +793,7 @@ export const useResourceStore = create<ResourceStore>((set, get) => ({
             throw new Error('Mind map generation already in progress');
         }
 
-        set({ isGeneratingMindMap: true });
+        set({ isGeneratingMindMap: true, lastMindMapError: null });
 
         try {
             if (!sessionId || !topicName) {
@@ -757,10 +804,12 @@ export const useResourceStore = create<ResourceStore>((set, get) => ({
             const safeConcepts = Array.isArray(concepts) ? concepts : [];
             const conceptsStr = safeConcepts.slice(0, 15).join(', ');
             const domainConstraint = buildDomainConstraint();
-            const { professionName } = getDomainContextForResources();
-            const domainContext = professionName ? ` (${professionName} domain)` : '';
-            const prompt = `${domainConstraint}You are an expert tutor. Create a mind map for topic "${topicName}"${domainContext} with these concepts: ${conceptsStr}. ${professionName ? `All concepts must be relevant to ${professionName}. ` : ''}Reply with only valid JSON: { "centralTopic": "string", "children": [ { "label": "string", "children": [] } ] }. Use 4-8 top-level children; nested children optional. No markdown or explanation.`;
-            const { content: aiText } = await generateContent(prompt, model);
+            const { subjectName, grade, exam } = getDomainContextForResources();
+            const domainContext = subjectName ? ` (${subjectName} ${grade || exam || ''})` : '';
+            const prompt = `${domainConstraint}You are an expert tutor. Create a mind map for topic "${topicName}"${domainContext} with these concepts: ${conceptsStr}. ${subjectName ? `All concepts must be relevant to ${subjectName}. ` : ''}Reply with only valid JSON: { "centralTopic": "string", "children": [ { "label": "string", "children": [] } ] }. Use 4-8 top-level children; nested children optional. No markdown or explanation.`;
+            const result = await aiIntegration.generateContent(prompt, { model, retries: 3 });
+            const aiText = result.success && result.data ? result.data.content : '';
+            if (!aiText) throw new Error(result.error || 'Failed to generate mind map.');
             const jsonMatch = aiText.match(/\{[\s\S]*\}/);
             const parsed = jsonMatch ? JSON.parse(jsonMatch[0]) : null;
             const mindMap = parsed ? buildMindMapFromAi(sessionId, topicName, parsed) : null;
@@ -779,6 +828,13 @@ export const useResourceStore = create<ResourceStore>((set, get) => ({
                 syncMindMapToBackend(mindMap).catch(e => {
                     console.error('Failed to sync mind map to backend:', e);
                 });
+
+                logAppEvent(ANALYTICS_EVENTS.MIND_MAP_GENERATED, {
+                    sessionId,
+                    topicName,
+                    conceptCount: safeConcepts.length
+                });
+
                 toast.success('Mind map generated successfully');
                 return mindMap;
             }
@@ -788,6 +844,8 @@ export const useResourceStore = create<ResourceStore>((set, get) => ({
             const errorMessage = error instanceof Error ? error.message : 'Unknown error';
             const isNetworkError = errorMessage.includes('Network') ||
                 errorMessage.includes('backend') ||
+                errorMessage.includes('not reachable') ||
+                errorMessage.includes('Start it with') ||
                 errorMessage.includes('timeout') ||
                 errorMessage.includes('Failed to fetch');
 
@@ -814,21 +872,22 @@ export const useResourceStore = create<ResourceStore>((set, get) => ({
                     return mindMap;
                 } catch (fallbackError) {
                     console.error('Failed to generate fallback mind map:', fallbackError);
-                    set({ isGeneratingMindMap: false });
                     const userMessage = isNetworkError
                         ? 'Unable to connect to AI service. Please check your connection and try again.'
                         : 'Failed to generate mind map. Please try again.';
+                    set({ isGeneratingMindMap: false, lastMindMapError: userMessage });
                     toast.error(userMessage);
                     throw fallbackError;
                 }
             } else {
-                // For validation or other non-network errors, don't use fallback
-                set({ isGeneratingMindMap: false });
+                set({ isGeneratingMindMap: false, lastMindMapError: errorMessage || 'Failed to generate mind map. Please try again.' });
                 toast.error(errorMessage || 'Failed to generate mind map. Please try again.');
                 throw error;
             }
         }
     },
+
+    clearMindMapError: () => set({ lastMindMapError: null }),
 
     generateFlashcards: async (sessionId, content) => {
         // Prevent concurrent generation
@@ -838,7 +897,7 @@ export const useResourceStore = create<ResourceStore>((set, get) => ({
             throw new Error('Flashcard generation already in progress');
         }
 
-        set({ isGeneratingFlashcards: true });
+        set({ isGeneratingFlashcards: true, lastFlashcardsError: null });
 
         try {
             if (!sessionId) {
@@ -848,14 +907,16 @@ export const useResourceStore = create<ResourceStore>((set, get) => ({
             const model: AiModelType = useSettingsStore.getState().settings.aiTutor?.preferredAiModel ?? 'llama';
             const contentStr = (content ?? []).join('\n').slice(0, 3000);
             const domainConstraint = buildDomainConstraint();
-            const { professionName } = getDomainContextForResources();
-            const domainContext = professionName ? ` for ${professionName} students` : '';
-            const prompt = `${domainConstraint}You are an expert tutor. Generate 5-10 flashcards${domainContext} for topic "${topicName}". Content: ${contentStr}. ${professionName ? `All questions and answers MUST be relevant to ${professionName}. Use ${professionName}-appropriate terminology. ` : ''}Reply with only a JSON array: [ { "question": "...", "answer": "..." } ]. No markdown or explanation.`;
-            const { content: aiText } = await generateContent(prompt, model);
+            const { subjectName } = getDomainContextForResources();
+            const domainContext = subjectName ? ` for ${subjectName} students` : '';
+            const prompt = `${domainConstraint}You are an expert tutor. Generate 5-10 flashcards${domainContext} for topic "${topicName}". Content: ${contentStr}. ${subjectName ? `All questions and answers MUST be relevant to ${subjectName}. Use appropriate terminology. ` : ''}Reply with only a JSON array: [ { "question": "...", "answer": "..." } ]. No markdown or explanation.`;
+            const result = await aiIntegration.generateContent(prompt, { model, retries: 3 });
+            const aiText = result.success && result.data ? result.data.content : '';
+            if (!aiText) throw new Error(result.error || 'Failed to generate flashcards.');
             const jsonMatch = aiText.match(/\[[\s\S]*\]/);
             const arr = jsonMatch ? JSON.parse(jsonMatch[0]) : null;
-            const cards: Flashcard[] = Array.isArray(arr) ? arr.slice(0, 12).map((item: { question?: string; answer?: string }, i: number) => ({
-                id: `card_${Date.now()}_${i}`,
+            const cards: Flashcard[] = Array.isArray(arr) ? arr.slice(0, 12).map((item: { question?: string; answer?: string }) => ({
+                id: generateUUID(),
                 sessionId,
                 question: item.question ?? '?',
                 answer: item.answer ?? '?',
@@ -881,6 +942,7 @@ export const useResourceStore = create<ResourceStore>((set, get) => ({
                 syncFlashcardsToBackend(cards).catch(e => {
                     console.error('Failed to sync flashcards to backend:', e);
                 });
+                logAppEvent(ANALYTICS_EVENTS.FLASHCARD_GENERATED, { sessionId, topicName, count: cards.length });
                 toast.success(`Generated ${cards.length} flashcards`);
                 return cards;
             }
@@ -890,6 +952,8 @@ export const useResourceStore = create<ResourceStore>((set, get) => ({
             const errorMessage = error instanceof Error ? error.message : 'Unknown error';
             const isNetworkError = errorMessage.includes('Network') ||
                 errorMessage.includes('backend') ||
+                errorMessage.includes('not reachable') ||
+                errorMessage.includes('Start it with') ||
                 errorMessage.includes('timeout') ||
                 errorMessage.includes('Failed to fetch');
 
@@ -917,21 +981,32 @@ export const useResourceStore = create<ResourceStore>((set, get) => ({
                     return cards;
                 } catch (fallbackError) {
                     console.error('Failed to generate fallback flashcards:', fallbackError);
-                    set({ isGeneratingFlashcards: false });
                     const userMessage = isNetworkError
                         ? 'Unable to connect to AI service. Please check your connection and try again.'
                         : 'Failed to generate flashcards. Please try again.';
+                    set({ isGeneratingFlashcards: false, lastFlashcardsError: userMessage });
                     toast.error(userMessage);
                     throw fallbackError;
                 }
             } else {
-                // For validation or other non-network errors, don't use fallback
-                set({ isGeneratingFlashcards: false });
+                set({ isGeneratingFlashcards: false, lastFlashcardsError: errorMessage || 'Failed to generate flashcards. Please try again.' });
                 toast.error(errorMessage || 'Failed to generate flashcards. Please try again.');
                 throw error;
             }
         }
     },
+
+    generateFlashcardsFromNote: async (note) => {
+        const sectionContent = note.sections.flatMap((s) => [
+            `## ${s.heading}`,
+            s.content,
+            s.highlights.length ? `Key points: ${s.highlights.join('; ')}` : '',
+        ].filter(Boolean));
+        const content = [`Topic: ${note.topicName}`, `Title: ${note.title}`, '', ...sectionContent];
+        return get().generateFlashcards(note.sessionId, content);
+    },
+
+    clearFlashcardsError: () => set({ lastFlashcardsError: null }),
 
     setCurrentReviewIndex: (index) => set({ currentReviewIndex: index }),
 
@@ -939,44 +1014,153 @@ export const useResourceStore = create<ResourceStore>((set, get) => ({
         set((state) => {
             const updated = state.flashcards.map((card) => {
                 if (card.id !== id) return card;
-
-                // Simple spaced repetition algorithm
-                let newInterval = card.intervalDays;
-                let newEaseFactor = card.easeFactor;
-
-                switch (performance) {
-                    case 'again':
-                        newInterval = 1;
-                        newEaseFactor = Math.max(1.3, card.easeFactor - 0.2);
-                        break;
-                    case 'hard':
-                        newInterval = Math.ceil(card.intervalDays * 1.2);
-                        newEaseFactor = Math.max(1.3, card.easeFactor - 0.15);
-                        break;
-                    case 'good':
-                        newInterval = Math.ceil(card.intervalDays * card.easeFactor);
-                        break;
-                    case 'easy':
-                        newInterval = Math.ceil(card.intervalDays * card.easeFactor * 1.3);
-                        newEaseFactor = card.easeFactor + 0.15;
-                        break;
-                }
-
-                const nextDate = new Date();
-                nextDate.setDate(nextDate.getDate() + newInterval);
-
-                return {
-                    ...card,
-                    intervalDays: newInterval,
-                    easeFactor: newEaseFactor,
-                    repetitions: card.repetitions + 1,
-                    lastPerformance: performance,
-                    nextReviewDate: nextDate.toISOString(),
-                };
+                const updates = computeNextReviewUpdates(card, performance);
+                return { ...card, ...updates };
             });
-
             return { flashcards: updated };
         });
+    },
+
+    removeNote: async (noteId) => {
+        const { user, isGuest } = useAuthStore.getState();
+        if (user?.id && !isGuest) await deleteNoteWithOfflineQueue(user.id, noteId);
+        set((state) => ({ notes: state.notes.filter((n) => n.id !== noteId) }));
+    },
+
+    removeNoteWithUndo: (note) => {
+        const id = note.id;
+        set((state) => ({ notes: state.notes.filter((n) => n.id !== id) }));
+        const timeoutId = setTimeout(() => {
+            pendingDeletes.delete(id);
+            const uid = useAuthStore.getState().user?.id;
+            if (uid && !useAuthStore.getState().isGuest) deleteNoteWithOfflineQueue(uid, id).catch(() => { });
+        }, UNDO_DELAY_MS);
+        pendingDeletes.set(id, { payload: { type: 'note', data: note }, timeoutId });
+        toast.success('Note deleted', UNDO_DELAY_MS, {
+            label: 'Undo',
+            onClick: () => useResourceStore.getState().restoreNote(id),
+        });
+    },
+
+    restoreNote: (noteId) => {
+        const pending = pendingDeletes.get(noteId);
+        if (!pending || pending.payload.type !== 'note') return false;
+        clearTimeout(pending.timeoutId);
+        pendingDeletes.delete(noteId);
+        set((state) => ({ notes: [...state.notes, pending.payload.data as GeneratedNote] }));
+        return true;
+    },
+
+    updateNote: async (noteId, updates) => {
+        const { user, isGuest } = useAuthStore.getState();
+        if (user?.id && !isGuest) await updateNoteWithOfflineQueue(user.id, noteId, updates);
+        set((state) => ({
+            notes: state.notes.map((n) => (n.id === noteId ? { ...n, ...updates } : n)),
+        }));
+    },
+
+    addNoteFromHighlight: (params) => {
+        const { topicName, sessionId, stepTitle, snippetText } = params;
+        const note: GeneratedNote = {
+            id: generateUUID(),
+            sessionId,
+            topicName,
+            title: `Highlight: ${stepTitle}`,
+            content: snippetText,
+            sections: [{ heading: stepTitle, content: snippetText, highlights: [snippetText.slice(0, 80)] }],
+            userDoubts: [],
+            createdAt: new Date().toISOString(),
+        };
+        set((state) => ({ notes: [note, ...state.notes] }));
+        syncNoteToBackend(note);
+    },
+
+    removeMindMap: async (mapId) => {
+        const { user, isGuest } = useAuthStore.getState();
+        if (user?.id && !isGuest) await deleteMindMap(user.id, mapId);
+        set((state) => ({ mindMaps: state.mindMaps.filter((m) => m.id !== mapId) }));
+    },
+
+    removeMindMapWithUndo: (map) => {
+        const id = map.id;
+        set((state) => ({ mindMaps: state.mindMaps.filter((m) => m.id !== id) }));
+        const timeoutId = setTimeout(() => {
+            pendingDeletes.delete(id);
+            const auth = useAuthStore.getState();
+            if (auth.user?.id && !auth.isGuest) {
+                deleteMindMap(auth.user.id, id).catch(() => { });
+            }
+        }, UNDO_DELAY_MS);
+        pendingDeletes.set(id, { payload: { type: 'mindmap', data: map }, timeoutId });
+        toast.success('Mind map deleted', UNDO_DELAY_MS, {
+            label: 'Undo',
+            onClick: () => useResourceStore.getState().restoreMindMap(id),
+        });
+    },
+
+    restoreMindMap: (mapId) => {
+        const pending = pendingDeletes.get(mapId);
+        if (!pending || pending.payload.type !== 'mindmap') return false;
+        clearTimeout(pending.timeoutId);
+        pendingDeletes.delete(mapId);
+        set((state) => ({ mindMaps: [...state.mindMaps, pending.payload.data as MindMap] }));
+        return true;
+    },
+
+    removeFlashcard: async (cardId) => {
+        const { user, isGuest } = useAuthStore.getState();
+        if (user?.id && !isGuest) await deleteFlashcard(user.id, cardId);
+        set((state) => ({ flashcards: state.flashcards.filter((f) => f.id !== cardId) }));
+    },
+
+    removeFlashcardSetWithUndo: (sessionId, cards) => {
+        const key = `flashcardSet-${sessionId}`;
+        const ids = new Set(cards.map((c) => c.id));
+        set((state) => ({ flashcards: state.flashcards.filter((f) => !ids.has(f.id)) }));
+        const timeoutId = setTimeout(() => {
+            pendingDeletes.delete(key);
+            const uid = useAuthStore.getState().user?.id;
+            const isGuest = useAuthStore.getState().isGuest;
+            if (uid && !isGuest) cards.forEach((c) => deleteFlashcard(uid, c.id).catch(() => { }));
+        }, UNDO_DELAY_MS);
+        pendingDeletes.set(key, { payload: { type: 'flashcardSet', data: cards, sessionId }, timeoutId });
+        toast.success('Flashcards deleted', UNDO_DELAY_MS, {
+            label: 'Undo',
+            onClick: () => useResourceStore.getState().restoreFlashcardSet(sessionId),
+        });
+    },
+
+    restoreFlashcardSet: (sessionId) => {
+        const key = `flashcardSet-${sessionId}`;
+        const pending = pendingDeletes.get(key);
+        if (!pending || pending.payload.type !== 'flashcardSet') return false;
+        clearTimeout(pending.timeoutId);
+        pendingDeletes.delete(key);
+        set((state) => ({
+            flashcards: [...state.flashcards, ...(pending.payload.data as Flashcard[])],
+        }));
+        return true;
+    },
+
+    addImportedFlashcards: (sessionId, rows) => {
+        const baseTime = Date.now();
+        const cards: Flashcard[] = rows.map((row, i) =>
+            createFlashcard(
+                sessionId,
+                baseTime,
+                i + 1,
+                row.question.trim(),
+                row.answer.trim(),
+                '',
+                '',
+                'medium',
+                Array.isArray(row.tags) ? row.tags : (row.tags ? [row.tags] : [])
+            )
+        );
+        if (cards.length === 0) return [];
+        set((state) => ({ flashcards: [...state.flashcards, ...cards] }));
+        syncFlashcardsToBackend([...useResourceStore.getState().flashcards]).catch(() => { });
+        return cards;
     },
 
     clearSessionResources: (sessionId) => {

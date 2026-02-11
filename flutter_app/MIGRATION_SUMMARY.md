@@ -4,11 +4,11 @@
 
 ### 1. Project Structure
 - ✅ Flutter project initialized with `pubspec.yaml`
-- ✅ Complete dependency setup (Supabase, Riverpod, GoRouter, etc.)
+- ✅ Complete dependency setup (Riverpod, GoRouter, etc.)
 - ✅ Project structure organized
 
 ### 2. Core Infrastructure
-- ✅ **Main App** (`lib/main.dart`): App initialization, Supabase setup, localization
+- ✅ **Main App** (`lib/main.dart`): App initialization, localization
 - ✅ **Router** (`lib/router/app_router.dart`): Navigation with GoRouter, protected routes
 - ✅ **State Management**: Riverpod providers for auth and app state
 - ✅ **Theme System**: Light/Dark theme support
@@ -96,10 +96,9 @@
 - [ ] Progress indicators
 - [ ] Badge widgets
 
-### 6. Supabase Integration
-- [ ] Supabase Database setup for data persistence
-- [ ] Supabase Storage for user uploads
-- [ ] Analytics events (Supabase/PostHog)
+### 6. Backend & Data
+- [ ] Optional: replace in-memory data with your own API for persistence
+- [ ] Analytics events (optional)
 
 ### 7. Internationalization
 - [ ] Create localization files (en, es, fr, de)

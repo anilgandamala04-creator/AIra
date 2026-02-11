@@ -1,13 +1,16 @@
 import { create } from 'zustand';
 import type { Doubt, DoubtResolution, QuizQuestion } from '../types';
-import { resolveDoubt as resolveDoubtApi, type AiModelType } from '../services/aiApi';
+import { resolveAIDoubt } from '../services/aiExecution';
+import type { AiModelType } from '../services/aiApi';
 import { useSettingsStore } from './settingsStore';
 import { useAuthStore } from './authStore';
-import { saveDoubt as saveDoubtToDb, updateDoubt as updateDoubtInDb } from '../services/backendService';
+import { saveDoubtWithOfflineQueue as saveDoubtToDb, updateDoubtWithOfflineQueue as updateDoubtInDb } from '../services/backendWithOffline';
 import { useTeachingStore } from './teachingStore';
+import { toast } from './toastStore';
 import { realTimeEvents, EVENTS } from '../utils/realTimeSync';
+import { logAppEvent, ANALYTICS_EVENTS } from '../lib/analytics';
 
-// Helper to sync doubts to Firestore if user is logged in
+// Helper to sync doubts to backend if user is logged in
 async function syncDoubtToBackend(doubt: Doubt): Promise<void> {
     const { user, isGuest } = useAuthStore.getState();
     if (user?.id && !isGuest) {
@@ -62,6 +65,7 @@ export const useDoubtStore = create<DoubtStore>((set, get) => ({
     _autoResolveTimeouts: {} as Record<string, ReturnType<typeof setTimeout>>,
 
     raiseDoubt: (question, sessionId, stepNumber, stepTitle) => {
+        logAppEvent(ANALYTICS_EVENTS.DOUBT_RAISED, { session_id: sessionId, step: stepNumber });
         const doubt: Doubt = {
             id: `doubt_${Date.now()}`,
             sessionId,
@@ -81,10 +85,9 @@ export const useDoubtStore = create<DoubtStore>((set, get) => ({
         // Create timeout BEFORE state update to ensure it's available for tracking
         const timeoutId = setTimeout(() => {
             const currentState = get();
-            // Remove timeout from object since it's executing
             if (currentState._autoResolveTimeouts[doubt.id]) {
-                // eslint-disable-next-line @typescript-eslint/no-unused-vars
-                const { [doubt.id]: _, ...updatedTimeouts } = currentState._autoResolveTimeouts;
+                const updatedTimeouts = { ...currentState._autoResolveTimeouts };
+                delete updatedTimeouts[doubt.id];
                 set({ _autoResolveTimeouts: updatedTimeouts });
             }
             // Only resolve if this doubt is still the active one
@@ -98,10 +101,9 @@ export const useDoubtStore = create<DoubtStore>((set, get) => ({
             // Clear timeout for previous active doubt if it exists
             let newTimeouts = { ...state._autoResolveTimeouts };
             if (previousActiveDoubtId && newTimeouts[previousActiveDoubtId]) {
-                const previousTimeout = newTimeouts[previousActiveDoubtId];
-                clearTimeout(previousTimeout);
-                // eslint-disable-next-line @typescript-eslint/no-unused-vars
-                const { [previousActiveDoubtId]: _, ...rest } = newTimeouts;
+                clearTimeout(newTimeouts[previousActiveDoubtId]);
+                const rest = { ...newTimeouts };
+                delete rest[previousActiveDoubtId];
                 newTimeouts = rest;
             }
             // Track new timeout atomically
@@ -129,8 +131,8 @@ export const useDoubtStore = create<DoubtStore>((set, get) => ({
             const timeout = state._autoResolveTimeouts[state.activeDoubt.id];
             if (timeout) {
                 clearTimeout(timeout);
-                // eslint-disable-next-line @typescript-eslint/no-unused-vars
-                const { [state.activeDoubt.id]: _, ...newTimeouts } = state._autoResolveTimeouts;
+                const newTimeouts = { ...state._autoResolveTimeouts };
+                delete newTimeouts[state.activeDoubt.id];
                 set({ activeDoubt: doubt, _autoResolveTimeouts: newTimeouts });
                 return;
             }
@@ -168,8 +170,13 @@ export const useDoubtStore = create<DoubtStore>((set, get) => ({
         ].filter(Boolean);
         const context = contextParts.join('. ');
 
-        resolveDoubtApi(doubt.question, context, model)
-            .then((resolution) => {
+        (async () => {
+            try {
+                const result = await resolveAIDoubt(doubt.question, context, { model, retries: 3 });
+                if (!result.success || !result.data) {
+                    throw new Error(result.error || 'Could not resolve doubt.');
+                }
+                const resolution = result.data;
                 const quizQuestion = resolution.quizQuestion
                     ? {
                         id: `quiz_${doubtId}`,
@@ -183,20 +190,27 @@ export const useDoubtStore = create<DoubtStore>((set, get) => ({
                 get().resolveDoubt(doubtId, {
                     explanation: resolution.explanation,
                     examples: resolution.examples ?? [],
+                    visualType: resolution.visualType,
+                    visualPrompt: resolution.visualPrompt,
                     quizQuestion,
                     resolvedAt: new Date().toISOString(),
                     understandingConfirmed: false,
                 });
-            })
-            .catch((error) => {
+            } catch (error) {
                 console.error('Failed to resolve doubt:', error);
+                const msg = error instanceof Error ? error.message : 'Could not resolve doubt.';
+                const isBackendUnavailable = msg.includes('not reachable') || msg.includes('Start it with') || msg.includes('Failed to fetch');
+                toast.warning(isBackendUnavailable
+                    ? 'AI backend is unavailable. Start it with: npm run dev:backend (from project root).'
+                    : msg.length > 100 ? 'Could not resolve doubt. Please try again.' : msg);
                 set((state) => ({
                     isResolvingDoubt: false,
                     doubts: state.doubts.map((d) =>
                         d.id === doubtId ? { ...d, status: 'pending' as const } : d
                     ),
                 }));
-            });
+            }
+        })();
     },
 
     resolveDoubt: (doubtId, resolution) => {
@@ -281,14 +295,11 @@ export const useDoubtStore = create<DoubtStore>((set, get) => ({
         set((state) => {
             // Clear timeouts for doubts being removed
             const doubtsToRemove = state.doubts.filter((d) => d.sessionId === sessionId);
-            let newTimeouts = { ...state._autoResolveTimeouts };
+            const newTimeouts = { ...state._autoResolveTimeouts };
             doubtsToRemove.forEach((doubt) => {
-                const timeout = newTimeouts[doubt.id];
-                if (timeout) {
-                    clearTimeout(timeout);
-                    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-                    const { [doubt.id]: _, ...rest } = newTimeouts;
-                    newTimeouts = rest;
+                if (newTimeouts[doubt.id]) {
+                    clearTimeout(newTimeouts[doubt.id]);
+                    delete newTimeouts[doubt.id];
                 }
             });
             return {

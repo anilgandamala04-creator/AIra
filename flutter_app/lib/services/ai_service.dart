@@ -1,26 +1,16 @@
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
-import 'package:supabase_flutter/supabase_flutter.dart';
-import '../constants/supabase_constants.dart';
 
 class AIService {
-  // Use VITE_API_URL or similar if provided, otherwise default to local
   static const String _defaultBaseUrl = kIsWeb 
       ? 'http://localhost:5000/api'
-      : 'http://10.0.2.2:5000/api'; // Standard for Android Emulator
-      
+      : 'http://10.0.2.2:5000/api';
+
   final String _baseUrl = const String.fromEnvironment('API_URL', defaultValue: _defaultBaseUrl);
 
   Future<Map<String, String>> _getHeaders() async {
-    final session = Supabase.instance.client.auth.currentSession;
-    final headers = {'Content-Type': 'application/json'};
-    
-    if (session != null) {
-      headers['Authorization'] = 'Bearer ${session.accessToken}';
-    }
-    
-    return headers;
+    return {'Content-Type': 'application/json'};
   }
 
   Future<Map<String, dynamic>> resolveDoubt(String question, String context) async {

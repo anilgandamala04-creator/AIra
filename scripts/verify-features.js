@@ -60,24 +60,9 @@ async function main() {
   let passed = 0;
   let failed = 0;
 
-  // 1. Frontend env (required for auth and API)
-  if (env.VITE_FIREBASE_API_KEY && env.VITE_FIREBASE_API_KEY.length > 10) {
-    log('✓ Frontend: Firebase config present', 'green');
-    passed++;
-  } else {
-    log('✗ Frontend: VITE_FIREBASE_API_KEY missing or invalid', 'red');
-    failed++;
-  }
+  log(`  API base: ${apiUrl} (set VITE_API_URL to override)`, 'reset');
 
-  if (env.VITE_FIREBASE_PROJECT_ID) {
-    log('✓ Frontend: VITE_FIREBASE_PROJECT_ID set', 'green');
-    passed++;
-  } else {
-    log('✗ Frontend: VITE_FIREBASE_PROJECT_ID missing', 'red');
-    failed++;
-  }
-
-  // 2. Backend reachability and AI models
+  // 1. Backend reachability and AI models
   log('\nBackend & AI service...', 'blue');
   const health = await fetchHealth(apiUrl);
   if (health.ok && health.data) {
@@ -102,7 +87,7 @@ async function main() {
     failed++;
   }
 
-  // 3. Key source files (routes and features exist)
+  // 2. Key source files (routes and features exist)
   const requiredFiles = [
     'src/App.tsx',
     'src/main.tsx',

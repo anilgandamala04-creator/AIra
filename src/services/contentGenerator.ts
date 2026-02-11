@@ -13,30 +13,30 @@ export function generateComprehensiveCourse(
 ): TeachingStep[] {
     // Analyze the topic
     const analysis = analyzeTopic(topicId, topicName, description, subjectArea);
-    
+
     // Generate steps based on analysis
     const steps: TeachingStep[] = [];
-    
+
     // 1. Introduction section
     steps.push(...generateIntroductionSteps(analysis));
-    
+
     // 2. Core content section
     steps.push(...generateCoreContentSteps(analysis));
-    
+
     // 3. Examples and applications section
     steps.push(...generateExamplesSteps(analysis));
-    
+
     // 4. Practice/Interactive section
     steps.push(...generatePracticeSteps(analysis));
-    
+
     // 5. Review and summary section
     steps.push(...generateReviewSteps(analysis));
-    
+
     // Update step numbers
     steps.forEach((step, index) => {
         step.stepNumber = index + 1;
     });
-    
+
     return steps;
 }
 
@@ -47,10 +47,7 @@ function generateIntroductionSteps(analysis: TopicAnalysis): TeachingStep[] {
     const steps: TeachingStep[] = [];
     const introMinutes = analysis.recommendedStructure.introductionMinutes;
     const stepsCount = Math.max(2, Math.ceil(introMinutes / 3)); // ~3 minutes per step
-    
-    // Suppress unused variable warning - stepsCount is used in conditional logic below
-    void stepsCount;
-    
+
     // Welcome step
     steps.push({
         id: `${analysis.topicId}-intro-1`,
@@ -59,6 +56,7 @@ function generateIntroductionSteps(analysis: TopicAnalysis): TeachingStep[] {
         content: generateWelcomeContent(analysis),
         spokenContent: generateWelcomeSpokenContent(analysis),
         visualType: 'diagram',
+        visualPrompt: `Welcome visual for ${analysis.topicName}`,
         durationSeconds: 180,
         completed: false,
         complexity: 'basic',
@@ -66,7 +64,7 @@ function generateIntroductionSteps(analysis: TopicAnalysis): TeachingStep[] {
         keyConcepts: analysis.scope.primaryConcepts.slice(0, 3),
         realWorldExamples: analysis.realWorldExamples.slice(0, 2),
     });
-    
+
     // Overview step
     if (stepsCount > 1) {
         steps.push({
@@ -76,6 +74,7 @@ function generateIntroductionSteps(analysis: TopicAnalysis): TeachingStep[] {
             content: generateOverviewContent(analysis),
             spokenContent: generateOverviewSpokenContent(analysis),
             visualType: 'diagram',
+            visualPrompt: `Overview infographic of ${analysis.topicName}`,
             durationSeconds: 180,
             completed: false,
             complexity: 'basic',
@@ -83,7 +82,7 @@ function generateIntroductionSteps(analysis: TopicAnalysis): TeachingStep[] {
             keyConcepts: analysis.scope.primaryConcepts,
         });
     }
-    
+
     // Learning objectives step
     if (stepsCount > 2) {
         steps.push({
@@ -99,7 +98,7 @@ function generateIntroductionSteps(analysis: TopicAnalysis): TeachingStep[] {
             estimatedMinutes: 2,
         });
     }
-    
+
     return steps;
 }
 
@@ -110,12 +109,12 @@ function generateCoreContentSteps(analysis: TopicAnalysis): TeachingStep[] {
     const steps: TeachingStep[] = [];
     const primaryConcepts = analysis.scope.primaryConcepts;
     const subConcepts = analysis.scope.subConcepts;
-    
+
     // Generate steps for primary concepts
     primaryConcepts.forEach((concept, index) => {
         const stepIndex = index + 1;
         const duration = analysis.complexity === 'advanced' || analysis.complexity === 'expert' ? 300 : 240;
-        
+
         steps.push({
             id: `${analysis.topicId}-core-${stepIndex}`,
             stepNumber: 0,
@@ -123,6 +122,7 @@ function generateCoreContentSteps(analysis: TopicAnalysis): TeachingStep[] {
             content: generateConceptContent(concept, analysis),
             spokenContent: generateConceptSpokenContent(concept, analysis),
             visualType: getVisualTypeForConcept(concept, analysis),
+            visualPrompt: `Diagram illustrating ${concept} in the context of ${analysis.topicName}`,
             durationSeconds: duration,
             completed: false,
             complexity: analysis.complexity === 'expert' ? 'advanced' : analysis.complexity,
@@ -133,12 +133,12 @@ function generateCoreContentSteps(analysis: TopicAnalysis): TeachingStep[] {
             practicalApplications: getPracticalApplications(concept, analysis.scope.practicalApplications),
         });
     });
-    
+
     // Generate steps for important sub-concepts
     const importantSubConcepts = subConcepts.slice(0, Math.ceil(subConcepts.length / 2));
     importantSubConcepts.forEach((subConcept, index) => {
         const stepIndex = primaryConcepts.length + index + 1;
-        
+
         steps.push({
             id: `${analysis.topicId}-core-sub-${stepIndex}`,
             stepNumber: 0,
@@ -146,6 +146,7 @@ function generateCoreContentSteps(analysis: TopicAnalysis): TeachingStep[] {
             content: generateSubConceptContent(subConcept, analysis),
             spokenContent: generateSubConceptSpokenContent(subConcept, analysis),
             visualType: 'diagram',
+            visualPrompt: `Deep dive into ${subConcept}`,
             durationSeconds: 180,
             completed: false,
             complexity: analysis.complexity === 'basic' ? 'intermediate' : (analysis.complexity === 'expert' ? 'advanced' : analysis.complexity),
@@ -153,7 +154,7 @@ function generateCoreContentSteps(analysis: TopicAnalysis): TeachingStep[] {
             keyConcepts: [subConcept],
         });
     });
-    
+
     return steps;
 }
 
@@ -164,7 +165,7 @@ function generateExamplesSteps(analysis: TopicAnalysis): TeachingStep[] {
     const steps: TeachingStep[] = [];
     const examplesMinutes = analysis.recommendedStructure.examplesMinutes;
     const stepsCount = Math.max(1, Math.ceil(examplesMinutes / 4));
-    
+
     // Real-world examples step
     if (analysis.realWorldExamples.length > 0) {
         steps.push({
@@ -174,6 +175,7 @@ function generateExamplesSteps(analysis: TopicAnalysis): TeachingStep[] {
             content: generateRealWorldExamplesContent(analysis),
             spokenContent: generateRealWorldExamplesSpokenContent(analysis),
             visualType: 'text',
+            visualPrompt: `Real-world applications of ${analysis.topicName}`,
             durationSeconds: 240,
             completed: false,
             complexity: 'intermediate',
@@ -182,7 +184,7 @@ function generateExamplesSteps(analysis: TopicAnalysis): TeachingStep[] {
             practicalApplications: analysis.scope.practicalApplications,
         });
     }
-    
+
     // Case studies or detailed examples
     if (stepsCount > 1 && analysis.complexity !== 'basic') {
         steps.push({
@@ -198,7 +200,7 @@ function generateExamplesSteps(analysis: TopicAnalysis): TeachingStep[] {
             estimatedMinutes: 5,
         });
     }
-    
+
     return steps;
 }
 
@@ -208,7 +210,7 @@ function generateExamplesSteps(analysis: TopicAnalysis): TeachingStep[] {
 function generatePracticeSteps(analysis: TopicAnalysis): TeachingStep[] {
     const steps: TeachingStep[] = [];
     const practiceMinutes = analysis.recommendedStructure.practiceMinutes;
-    
+
     if (practiceMinutes >= 3) {
         steps.push({
             id: `${analysis.topicId}-practice-1`,
@@ -223,7 +225,7 @@ function generatePracticeSteps(analysis: TopicAnalysis): TeachingStep[] {
             estimatedMinutes: practiceMinutes,
         });
     }
-    
+
     return steps;
 }
 
@@ -232,7 +234,7 @@ function generatePracticeSteps(analysis: TopicAnalysis): TeachingStep[] {
  */
 function generateReviewSteps(analysis: TopicAnalysis): TeachingStep[] {
     const steps: TeachingStep[] = [];
-    
+
     // Summary step
     steps.push({
         id: `${analysis.topicId}-review-1`,
@@ -241,13 +243,14 @@ function generateReviewSteps(analysis: TopicAnalysis): TeachingStep[] {
         content: generateSummaryContent(analysis),
         spokenContent: generateSummarySpokenContent(analysis),
         visualType: 'text',
+        visualPrompt: `Key takeaways summary for ${analysis.topicName}`,
         durationSeconds: 180,
         completed: false,
         complexity: 'basic',
         estimatedMinutes: 3,
         keyConcepts: analysis.scope.primaryConcepts,
     });
-    
+
     // Quiz/Assessment step
     steps.push({
         id: `${analysis.topicId}-review-2`,
@@ -261,7 +264,7 @@ function generateReviewSteps(analysis: TopicAnalysis): TeachingStep[] {
         complexity: analysis.complexity === 'expert' ? 'advanced' : analysis.complexity,
         estimatedMinutes: 5,
     });
-    
+
     return steps;
 }
 
@@ -352,12 +355,12 @@ function generateRealWorldExamplesContent(analysis: TopicAnalysis): string {
 
 ${examples}
 
-These examples demonstrate how ${analysis.topicName} is applied in professional settings and everyday scenarios. Understanding these applications helps bridge the gap between theory and practice.`;
+These examples demonstrate how ${analysis.topicName} is applied in academic and real-world settings. Understanding these applications helps bridge the gap between theory and practice.`;
 }
 
 function generateRealWorldExamplesSpokenContent(analysis: TopicAnalysis): string {
     const examples = analysis.realWorldExamples.slice(0, 3).join('. ');
-    return `Let us explore real-world applications of ${analysis.topicName}. ${examples}. These examples demonstrate how this knowledge is applied in professional settings and everyday scenarios, bridging the gap between theory and practice.`;
+    return `Let us explore real-world applications of ${analysis.topicName}. ${examples}. These examples demonstrate how this knowledge is applied in academic and real-world settings, bridging the gap between theory and practice.`;
 }
 
 function generateCaseStudiesContent(analysis: TopicAnalysis): string {
@@ -396,38 +399,38 @@ function generateSummarySpokenContent(analysis: TopicAnalysis): string {
 
 function getVisualTypeForConcept(concept: string, analysis: TopicAnalysis): TeachingStep['visualType'] {
     const lowerConcept = concept.toLowerCase();
-    
+
     // Check if 3D model is available
     if (analysis.visualAidsRequired.includes('3d-model')) {
         return '3d-model';
     }
-    
+
     // Check for animation needs
     if (lowerConcept.includes('flow') || lowerConcept.includes('process') || lowerConcept.includes('motion')) {
         return 'animation';
     }
-    
+
     // Check for interactive needs
     if (lowerConcept.includes('practice') || lowerConcept.includes('exercise') || lowerConcept.includes('simulation')) {
         return 'interactive';
     }
-    
+
     // Default to diagram
     return 'diagram';
 }
 
 function getRelatedSubConcepts(concept: string, subConcepts: string[]): string[] {
     const lowerConcept = concept.toLowerCase();
-    return subConcepts.filter(sub => 
-        sub.toLowerCase().includes(lowerConcept) || 
+    return subConcepts.filter(sub =>
+        sub.toLowerCase().includes(lowerConcept) ||
         lowerConcept.includes(sub.toLowerCase().split(' ')[0])
     ).slice(0, 3);
 }
 
 function getRelevantExamples(concept: string, examples: string[]): string[] {
     const lowerConcept = concept.toLowerCase();
-    const relevant = examples.filter(ex => 
-        ex.toLowerCase().includes(lowerConcept) || 
+    const relevant = examples.filter(ex =>
+        ex.toLowerCase().includes(lowerConcept) ||
         lowerConcept.split(' ').some(word => ex.toLowerCase().includes(word))
     );
     return relevant.length > 0 ? relevant.slice(0, 2) : examples.slice(0, 1);
@@ -436,8 +439,8 @@ function getRelevantExamples(concept: string, examples: string[]): string[] {
 function getPracticalApplications(concept: string, applications: string[]): string[] {
     if (applications.length === 0) return [];
     const lowerConcept = concept.toLowerCase();
-    const relevant = applications.filter(app => 
-        app.toLowerCase().includes(lowerConcept) || 
+    const relevant = applications.filter(app =>
+        app.toLowerCase().includes(lowerConcept) ||
         lowerConcept.split(' ').some(word => app.toLowerCase().includes(word))
     );
     return relevant.length > 0 ? relevant.slice(0, 2) : applications.slice(0, 1);

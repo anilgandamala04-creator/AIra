@@ -1,5 +1,7 @@
 # Docker Setup for Supabase CLI
 
+> **Deprecated.** This project no longer uses Supabase. The application uses **Firebase** as the sole backend (Auth, Firestore, Storage) and is hosted on Firebase Hosting. See **FIREBASE_SETUP.md**. This file is kept only for reference.
+
 ## Issue
 
 The error `failed to inspect container health` means Docker is not running or not accessible. Supabase CLI requires Docker to run local services.

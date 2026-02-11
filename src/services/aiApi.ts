@@ -5,48 +5,36 @@
  */
 
 import { AI_PROMPT_MAX_LENGTH, AI_PROMPT_MIN_LENGTH } from '../constants/featureContracts';
-import { auth } from '../lib/firebase';
 
 export type AiModelType = 'llama' | 'mistral';
 
 /**
  * Get the backend API base URL.
- * - VITE_API_URL: explicit override (local Express or Firebase Cloud Functions URL).
- * - Local development: defaults to http://localhost:5000.
- * - Production: use VITE_API_URL or Firebase Cloud Functions URL if set.
+ * - VITE_API_URL: explicit override (e.g. local Express or production API URL).
+ * - Local dev: use http://localhost:5000 so the app reliably reaches the Express backend (avoids proxy/CORS issues).
+ * - Production (Firebase Hosting): same origin; Hosting rewrites /api/** and /health to Cloud Functions.
  */
 const getBaseUrl = (): string => {
   try {
-    const meta = import.meta as unknown as { env?: { VITE_API_URL?: string } };
+    const meta = import.meta as unknown as { env?: { VITE_API_URL?: string; DEV?: boolean } };
     const url = meta.env?.VITE_API_URL;
     if (url && typeof url === 'string' && url.trim()) {
       return url.trim().replace(/\/$/, '');
     }
+    if (typeof window !== 'undefined') {
+      const hostname = window.location.hostname;
+      const isLocal = hostname === 'localhost' || hostname === '127.0.0.1' || hostname.startsWith('192.168.') || hostname.startsWith('10.');
+      // Development: hit Express backend directly so AI works when backend runs on port 5000
+      if (meta.env?.DEV && isLocal) {
+        return `http://${hostname}:5000`;
+      }
+      // Production (e.g. Firebase Hosting): same origin; rewrites send /api and /health to Cloud Functions
+      if (!isLocal) return '';
+      return `http://${hostname}:5000`;
+    }
   } catch {
     // ignore
   }
-
-  if (typeof window !== 'undefined') {
-    const hostname = window.location.hostname;
-    const isLocalDev = hostname === 'localhost' || hostname === '127.0.0.1' || hostname.startsWith('192.168.');
-    const projectId = (import.meta.env?.VITE_FIREBASE_PROJECT_ID as string) || '';
-    const origin = window.location.origin;
-
-    if (isLocalDev) {
-      return 'http://localhost:5000';
-    }
-
-    // Use same-origin when on Firebase Hosting (API rewritten to Cloud Functions) for reliable, CORS-free requests
-    const isFirebaseHosting = hostname.endsWith('.web.app') || hostname.endsWith('.firebaseapp.com');
-    if (isFirebaseHosting) {
-      return origin.replace(/\/$/, '');
-    }
-
-    if (projectId) {
-      return `https://us-central1-${projectId}.cloudfunctions.net/api`;
-    }
-  }
-
   return 'http://localhost:5000';
 };
 
@@ -54,34 +42,44 @@ let baseUrlLogged = false;
 function logBaseUrlOnce(): void {
   if (baseUrlLogged || typeof window === 'undefined') return;
   baseUrlLogged = true;
-  const base = getBaseUrl();
-  console.log(`[AI API] Using backend: ${base} (override with VITE_API_URL in .env)`);
-}
-
-/**
- * Get authentication headers with Firebase ID token
- */
-async function getAuthHeaders(): Promise<Record<string, string>> {
-  const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
-  };
-
-  const user = auth.currentUser;
-  if (user) {
-    const token = await user.getIdToken();
-    headers['Authorization'] = `Bearer ${token}`;
+  if (import.meta.env.DEV) {
+    getBaseUrl();
+    // Debug log removed
   }
+}
 
-  return headers;
+/** No external auth; backend may accept requests without token. */
+async function getAuthHeaders(): Promise<Record<string, string>> {
+  return { 'Content-Type': 'application/json' };
 }
 
 /**
- * Fetch with exponential backoff retry logic
+ * Parse Retry-After header: delay in seconds (integer) or HTTP-date.
+ * Returns seconds until retry, or 60 as default if unparseable.
+ */
+function parseRetryAfter(value: string | null): number {
+  if (!value || !value.trim()) return 60;
+  const n = parseInt(value.trim(), 10);
+  if (!Number.isNaN(n) && n >= 0) return Math.min(n, 3600);
+  try {
+    const date = new Date(value);
+    if (!Number.isNaN(date.getTime())) {
+      const sec = Math.round((date.getTime() - Date.now()) / 1000);
+      return Math.max(0, Math.min(sec, 3600));
+    }
+  } catch {
+    // ignore
+  }
+  return 60;
+}
+
+/**
+ * Fetch with exponential backoff retry logic for stable connectivity
  */
 async function fetchWithRetry(
   url: string,
   options: RequestInit,
-  maxRetries: number = 2,
+  maxRetries: number = 3,
   initialDelay: number = 1000
 ): Promise<Response> {
   let lastError: Error | null = null;
@@ -90,27 +88,62 @@ async function fetchWithRetry(
     try {
       if (attempt > 0) {
         const delay = initialDelay * Math.pow(2, attempt - 1);
-        console.log(`[AI API] Retry attempt ${attempt} after ${delay}ms delay...`);
+        if (import.meta.env.DEV) {
+          console.log(`[AI API] Retry attempt ${attempt} after ${delay}ms delay...`);
+        }
         await new Promise(resolve => setTimeout(resolve, delay));
       }
 
       const response = await fetch(url, options);
 
-      // Retry on 5xx errors or 429 (Too Many Requests)
-      if (response.status >= 500 || response.status === 429) {
+      // 429: do not retry; throw with Retry-After so UI can show "try again in X minutes"
+      if (response.status === 429) {
+        const retryAfterSeconds = parseRetryAfter(response.headers.get('Retry-After'));
+        const err = new Error('Too many requests') as Error & { status?: number; retryAfterSeconds?: number };
+        err.status = 429;
+        err.retryAfterSeconds = retryAfterSeconds;
+        throw err;
+      }
+
+      // 503: service unavailable — user-friendly message, optional Retry-After
+      if (response.status === 503) {
+        const retryAfterSeconds = parseRetryAfter(response.headers.get('Retry-After'));
         const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.error || `Server returned ${response.status}`);
+        const err = new Error((errorData as { error?: string }).error || 'Service busy. Please try again in a moment.') as Error & { status?: number; retryAfterSeconds?: number };
+        err.status = 503;
+        err.retryAfterSeconds = retryAfterSeconds;
+        throw err;
+      }
+
+      // 504: gateway timeout — do not retry; show Retry-After so UI can suggest when to try again
+      if (response.status === 504) {
+        const retryAfterSeconds = parseRetryAfter(response.headers.get('Retry-After'));
+        const errorData = await response.json().catch(() => ({}));
+        const err = new Error((errorData as { error?: string }).error || 'Request timed out. Please try again.') as Error & { status?: number; retryAfterSeconds?: number };
+        err.status = 504;
+        err.retryAfterSeconds = retryAfterSeconds;
+        throw err;
+      }
+
+      // Other 5xx: retry with generic message
+      if (response.status >= 500) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error((errorData as { error?: string }).error || `Server returned ${response.status}`);
       }
 
       return response;
     } catch (error) {
       lastError = error as Error;
-      console.warn(`[AI API] Attempt ${attempt + 1} failed:`, error);
+      if (import.meta.env.DEV) {
+        console.warn(`[AI API] Attempt ${attempt + 1} failed:`, error);
+      }
 
-      // Don't retry on abort (timeout) or auth errors
+      // Don't retry on abort (timeout), auth errors, or rate limit (429)
       if (error instanceof Error && (error.name === 'AbortError' || error.message.includes('API key'))) {
         throw error;
       }
+      const err = error as Error & { status?: number };
+      if (err.status === 429 || err.status === 503 || err.status === 504) throw error;
     }
   }
 
@@ -128,19 +161,16 @@ function validatePrompt(prompt: string): void {
 }
 
 /**
- * Generate user-friendly error messages based on the backend URL
+ * Generate user-friendly error messages based on the backend URL and error type
  */
-function getConnectionErrorMessage(base: string): string {
+function getConnectionErrorMessage(base: string, isTimeout?: boolean): string {
   const isLocal = base.includes('localhost') || base.includes('127.0.0.1');
-  const isFirebase = base.includes('cloudfunctions.net');
+  const timeoutHint = isTimeout ? ' The backend did not respond in time.' : '';
 
   if (isLocal) {
-    return `AI backend is not reachable at ${base}. Start it with: npm run dev:backend (from project root) or cd AIra/backend && npm run dev.`;
+    return `AI backend is not reachable at ${base}.${timeoutHint} Start it with: npm run dev:backend (from project root) or cd AIra/backend && npm run dev.`;
   }
-  if (isFirebase) {
-    return 'Connection failed: Cannot reach Firebase Cloud Functions. Check your internet connection and that the function is deployed.';
-  }
-  return 'Connection failed: Cannot reach AI backend. Check your connection and that the service is running.';
+  return `Connection failed: Cannot reach AI backend.${timeoutHint} Check your connection and that the service is running.`;
 }
 
 /**
@@ -148,30 +178,61 @@ function getConnectionErrorMessage(base: string): string {
  */
 const healthCheckCache: { base: string; until: number } = { base: '', until: 0 };
 const HEALTH_CHECK_CACHE_MS = 30000;
+const HEALTH_CHECK_TIMEOUT_MS = 6000;
 
-/** Quick health check to fail fast with a clear message if backend is down (browser only). Cached 30s. */
-async function ensureBackendReachable(base: string): Promise<void> {
+/** Clear the health-check cache so the next request will re-verify backend reachability. Call on connection errors. */
+export function clearHealthCheckCache(): void {
+  healthCheckCache.base = '';
+  healthCheckCache.until = 0;
+}
+
+/** Quick health check to fail fast with a clear message if backend is down (browser only). Cached 30s. Retries once after 2s on failure. */
+async function ensureBackendReachable(base: string, retry = true): Promise<void> {
   if (typeof window === 'undefined') return;
   const now = Date.now();
   if (healthCheckCache.base === base && healthCheckCache.until > now) return;
 
-  const controller = new AbortController();
-  const t = setTimeout(() => controller.abort(), 4000);
-  try {
-    const r = await fetch(`${base}/health`, { method: 'GET', signal: controller.signal });
-    clearTimeout(t);
-    if (r.ok) {
-      healthCheckCache.base = base;
-      healthCheckCache.until = now + HEALTH_CHECK_CACHE_MS;
-      return;
+  const attempt = async (): Promise<void> => {
+    const controller = new AbortController();
+    const t = setTimeout(() => controller.abort(), HEALTH_CHECK_TIMEOUT_MS);
+    try {
+      const r = await fetch(`${base}/health`, { method: 'GET', signal: controller.signal, cache: 'no-cache' });
+      clearTimeout(t);
+      if (r.ok) {
+        healthCheckCache.base = base;
+        healthCheckCache.until = now + HEALTH_CHECK_CACHE_MS;
+        return;
+      }
+    } catch (err) {
+      clearTimeout(t);
+      healthCheckCache.base = '';
+      healthCheckCache.until = 0;
+      const isTimeout = err instanceof Error && err.name === 'AbortError';
+      throw new Error(getConnectionErrorMessage(base, isTimeout));
     }
-  } catch {
-    clearTimeout(t);
     healthCheckCache.base = '';
     healthCheckCache.until = 0;
     throw new Error(getConnectionErrorMessage(base));
+  };
+
+  try {
+    await attempt();
+  } catch (first) {
+    const isRetryable =
+      first instanceof TypeError ||
+      (first instanceof Error &&
+        (first.name === 'AbortError' ||
+          first.message.includes('reachable') ||
+          first.message.includes('Failed to fetch') ||
+          first.message.includes('NetworkError') ||
+          first.message.includes('Load failed')));
+    if (retry && isRetryable) {
+      await new Promise((r) => setTimeout(r, 2000));
+      await attempt();
+    } else {
+      throw first;
+    }
   }
-  throw new Error(getConnectionErrorMessage(base));
 }
 
 export async function generateContent(
@@ -214,12 +275,13 @@ export async function generateContent(
     return { content, model: data.model ?? model };
   } catch (error) {
     clearTimeout(timeoutId);
-
+    if (error instanceof Error && (error.message.includes('Failed to fetch') || error.message.includes('network'))) {
+      clearHealthCheckCache();
+    }
     if (error instanceof Error) {
       if (error.name === 'AbortError') {
-        throw new Error(`Request timeout: AI backend did not respond within ${timeoutMs}ms.`);
+        throw new Error(`Request timeout: AI backend did not respond within ${timeoutMs / 1000}s. ${getConnectionErrorMessage(base, true)}`);
       }
-      // Note: Kept for verification script compatibility: cloudfunctions.net
       if (error.message.includes('Failed to fetch') || error.message.includes('network')) {
         throw new Error(getConnectionErrorMessage(base));
       }
@@ -231,6 +293,8 @@ export async function generateContent(
 export interface DoubtResolution {
   explanation: string;
   examples: string[];
+  visualType?: string;
+  visualPrompt?: string;
   quizQuestion: {
     question: string;
     options: string[];
@@ -245,12 +309,23 @@ export interface DoubtResolution {
 export async function resolveDoubt(
   question: string,
   context: string,
+  curriculumContext?: {
+    curriculumType?: string;
+    board?: string;
+    grade?: string;
+    exam?: string;
+    subject?: string;
+    topic?: string;
+  },
   model: AiModelType = 'llama',
   timeoutMs: number = 60000
 ): Promise<DoubtResolution> {
   const q = typeof question === 'string' ? question.trim() : '';
   if (q.length < 1) throw new Error('Question cannot be empty');
+  logBaseUrlOnce();
   const base = getBaseUrl();
+
+  await ensureBackendReachable(base);
 
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
@@ -261,10 +336,15 @@ export async function resolveDoubt(
       {
         method: 'POST',
         headers: await getAuthHeaders(),
-        body: JSON.stringify({ question: q, context: typeof context === 'string' ? context : '', model }),
+        body: JSON.stringify({
+          question: q,
+          context: typeof context === 'string' ? context : '',
+          curriculumContext,
+          model
+        }),
         signal: controller.signal,
       },
-      1,
+      3,
       1500
     );
 
@@ -278,6 +358,9 @@ export async function resolveDoubt(
     return data;
   } catch (error) {
     clearTimeout(timeoutId);
+    if (error instanceof Error && (error.message.includes('Failed to fetch') || error.message.includes('network'))) {
+      clearHealthCheckCache();
+    }
     if (error instanceof Error && error.name === 'AbortError') {
       throw new Error(`Request timeout: Doubt resolution did not complete within ${timeoutMs}ms. Please try again.`);
     }
@@ -319,18 +402,41 @@ export async function getAvailableModels(timeoutMs: number = 5000): Promise<{ ll
   }
 }
 
+/** When first argument length exceeds this, treat it as a full prompt and send as { prompt } for 45+ min curriculum-aware generation. */
+const FULL_PROMPT_THRESHOLD = 500;
+
 /**
  * Generate a structured lesson for a topic.
+ * If the first argument is a long string (e.g. full curriculum prompt from teachingStore), it is sent as { prompt } so the backend uses it directly.
  */
 export async function generateTeachingContent(
-  topic: string,
+  topicOrPrompt: string,
+  curriculumContext?: {
+    curriculumType?: string;
+    board?: string;
+    grade?: string;
+    exam?: string;
+    subject?: string;
+  },
   model: AiModelType = 'llama',
-  timeoutMs: number = 60000
-): Promise<{ title: string; sections: { title: string; content: string }[]; summary: string }> {
+  timeoutMs: number = 120000
+): Promise<{ title: string; sections: { title: string; content: string; spokenContent?: string; durationMinutes?: number; visualType?: string; visualPrompt?: string }[]; summary: string }> {
+  const trimmed = typeof topicOrPrompt === 'string' ? topicOrPrompt.trim() : '';
+  if (trimmed.length < 1) {
+    throw new Error('Topic or prompt cannot be empty');
+  }
+  logBaseUrlOnce();
   const base = getBaseUrl();
+
+  await ensureBackendReachable(base);
 
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
+  const isFullPrompt = trimmed.length > FULL_PROMPT_THRESHOLD;
+  const body = isFullPrompt
+    ? { prompt: trimmed, model }
+    : { topic: trimmed, curriculumContext, model };
 
   try {
     const res = await fetchWithRetry(
@@ -338,11 +444,11 @@ export async function generateTeachingContent(
       {
         method: 'POST',
         headers: await getAuthHeaders(),
-        body: JSON.stringify({ topic, model }),
+        body: JSON.stringify(body),
         signal: controller.signal,
       },
-      1,
-      1500
+      3,
+      2000
     );
 
     clearTimeout(timeoutId);
@@ -354,8 +460,11 @@ export async function generateTeachingContent(
     return await res.json();
   } catch (error) {
     clearTimeout(timeoutId);
+    if (error instanceof Error && (error.message.includes('Failed to fetch') || error.message.includes('network'))) {
+      clearHealthCheckCache();
+    }
     if (error instanceof Error && error.name === 'AbortError') {
-      throw new Error(`Request timeout: Teaching content generation did not complete within ${timeoutMs}ms. Please try again.`);
+      throw new Error(`Request timeout: Teaching content generation did not complete within ${timeoutMs / 1000}s. Please try again.`);
     }
     if (error instanceof TypeError || (error instanceof Error && error.message.includes('Failed to fetch'))) {
       throw new Error(getConnectionErrorMessage(base));
@@ -370,10 +479,25 @@ export async function generateTeachingContent(
 export async function generateQuiz(
   topic: string,
   context: string,
+  curriculumContext?: {
+    curriculumType?: string;
+    board?: string;
+    grade?: string;
+    exam?: string;
+    subject?: string;
+  },
   model: AiModelType = 'llama',
   timeoutMs: number = 60000
 ): Promise<{ questions: { question: string; options: string[]; correctAnswer: number; explanation: string }[] }> {
+  const topicTrimmed = typeof topic === 'string' ? topic.trim() : '';
+  if (topicTrimmed.length < 1) {
+    throw new Error('Topic cannot be empty');
+  }
+  const contextStr = typeof context === 'string' ? context : '';
+  logBaseUrlOnce();
   const base = getBaseUrl();
+
+  await ensureBackendReachable(base);
 
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
@@ -384,10 +508,10 @@ export async function generateQuiz(
       {
         method: 'POST',
         headers: await getAuthHeaders(),
-        body: JSON.stringify({ topic, context, model }),
+        body: JSON.stringify({ topic: topicTrimmed, context: contextStr, curriculumContext, model }),
         signal: controller.signal,
       },
-      1,
+      3,
       1500
     );
 
@@ -400,6 +524,9 @@ export async function generateQuiz(
     return await res.json();
   } catch (error) {
     clearTimeout(timeoutId);
+    if (error instanceof Error && (error.message.includes('Failed to fetch') || error.message.includes('network'))) {
+      clearHealthCheckCache();
+    }
     if (error instanceof Error && error.name === 'AbortError') {
       throw new Error(`Request timeout: Quiz generation did not complete within ${timeoutMs}ms. Please try again.`);
     }

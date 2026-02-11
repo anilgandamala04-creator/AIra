@@ -33,7 +33,7 @@ export const PAGE_PX = 'px-3 sm:px-4 md:px-6 lg:px-8';
 /** Safe area class names for notched devices (notches, orientation). */
 export const SAFE_AREAS = 'safe-top safe-bottom';
 
-/** ID for main content landmark (used by SkipLink and focus management). */
+/** ID for main content landmark (used for focus management and skip-to-content). */
 export const MAIN_CONTENT_ID = 'main-content';
 
 /**

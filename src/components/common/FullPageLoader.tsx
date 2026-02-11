@@ -1,3 +1,4 @@
+import React from 'react';
 import { motion } from 'framer-motion';
 import { Loader2 } from 'lucide-react';
 import { useShallow } from 'zustand/react/shallow';
@@ -21,9 +22,9 @@ export default function FullPageLoader({ message = 'Loading...' }: FullPageLoade
         >
             <motion.div
                 className="text-center"
-                initial={reduceAnimations ? undefined : pageVariants.initial}
-                animate={reduceAnimations ? undefined : pageVariants.animate}
-                transition={reduceAnimations ? undefined : TRANSITION_DEFAULT}
+                initial={reduceAnimations ? undefined : (pageVariants.initial as React.ComponentProps<typeof motion.div>['initial'])}
+                animate={reduceAnimations ? undefined : (pageVariants.animate as React.ComponentProps<typeof motion.div>['animate'])}
+                transition={reduceAnimations ? undefined : (TRANSITION_DEFAULT as React.ComponentProps<typeof motion.div>['transition'])}
             >
                 <motion.div
                     className="w-16 h-16 bg-gradient-to-br from-purple-500 to-pink-500 rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-lg"

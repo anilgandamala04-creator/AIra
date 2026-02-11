@@ -126,6 +126,22 @@ Or as part of `npm run deploy:rules` if `firestore.indexes` is in `firebase.json
 - **Storage**: User content under `user-content/{userId}/` is owner-only.
 - **Cloud Functions**: Optional auth (guests allowed with rate limiting). Authenticated users get Firebase ID token verification.
 
+## Scaling & Performance (Enterprise Ready)
+
+| Optimization | Method | Benefit |
+|--------------|--------|---------|
+| **Response Compression** | `compression` (Gzip) | Reduces AI payload sizes by up to 70% |
+| **Model Caching** | 5min TTL In-Memory | Prevents redundant API health checks |
+| **Structured Logging** | JSON standard output | Production logs are parseable by Cloud Logging/Datadog |
+| **Rate Limiting** | IP-aware Guest tracking | Prevents API abuse at scale |
+
+## Observability
+
+In production (`NODE_ENV=production`), the backend switches to structured JSON logging. This allows for:
+1. **Error Aggregation**: Automatic grouping of `level: error` logs.
+2. **Performance Monitoring**: Tracking `duration` fields in request logs.
+3. **Usage Analytics**: Monitoring `uid` and `method` for API heatmaps.
+
 ## Health Checks
 
 - **Backend**: `GET /health` returns status, available models, limits.

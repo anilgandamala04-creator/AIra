@@ -5,8 +5,10 @@
   "main": "index.js",
   "scripts": {
     "dev": "ts-node-dev --respawn --transpile-only src/server.ts",
+    "build": "tsc",
     "start": "tsc && node dist/server.js",
-    "test": "echo \"Error: no test specified\" && exit 1",
+    "test": "node test/smoke.js",
+    "test:smoke": "node test/smoke.js",
     "verify": "node verify-integration.js",
     "setup": "node setup-env.js",
     "setup:ps1": "powershell -ExecutionPolicy Bypass -File create-env.ps1"
@@ -17,13 +19,15 @@
   "type": "commonjs",
   "dependencies": {
     "@mistralai/mistralai": "^1.12.0",
-    "firebase-admin": "^13.0.0",
+    "compression": "^1.8.1",
     "cors": "^2.8.6",
     "dotenv": "^17.2.3",
     "express": "^5.2.1",
+    "helmet": "^8.1.0",
     "openai": "^6.17.0"
   },
   "devDependencies": {
+    "@types/compression": "^1.8.1",
     "@types/cors": "^2.8.19",
     "@types/express": "^5.0.6",
     "@types/node": "^25.2.0",

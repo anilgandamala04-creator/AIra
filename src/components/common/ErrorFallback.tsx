@@ -1,5 +1,6 @@
-import { useState, useCallback } from 'react';
+import React, { useState, useCallback } from 'react';
 import { motion } from 'framer-motion';
+import { useNavigate } from 'react-router-dom';
 import { useShallow } from 'zustand/react/shallow';
 import { AlertTriangle, RefreshCw, Copy, Check } from 'lucide-react';
 import { useSettingsStore } from '../../stores/settingsStore';
@@ -12,10 +13,11 @@ interface ErrorFallbackProps {
 
 export default function ErrorFallback({ error, onRetry }: ErrorFallbackProps) {
     const [copied, setCopied] = useState(false);
+    const navigate = useNavigate();
     const reduceAnimations = useSettingsStore(useShallow((s) => s.settings.accessibility.reduceAnimations));
 
     const handleGoHome = () => {
-        window.location.href = `${window.location.origin}/curriculum`;
+        navigate('/', { replace: true });
     };
 
     const handleCopyError = useCallback(() => {
@@ -37,9 +39,9 @@ export default function ErrorFallback({ error, onRetry }: ErrorFallbackProps) {
                 id="main-content"
                 tabIndex={-1}
                 className="max-w-md w-full max-w-[calc(100vw-2rem)] bg-white/90 dark:bg-slate-900/70 backdrop-blur-sm rounded-2xl shadow-xl p-6 sm:p-8 text-center"
-                initial={reduceAnimations ? reducedPageVariants.initial : fadeScaleVariants.initial}
-                animate={reduceAnimations ? reducedPageVariants.animate : fadeScaleVariants.animate}
-                transition={reduceAnimations ? { duration: 0 } : TRANSITION_DEFAULT}
+                initial={(reduceAnimations ? reducedPageVariants.initial : fadeScaleVariants.initial) as React.ComponentProps<typeof motion.main>['initial']}
+                animate={(reduceAnimations ? reducedPageVariants.animate : fadeScaleVariants.animate) as React.ComponentProps<typeof motion.main>['animate']}
+                transition={reduceAnimations ? { duration: 0 } : (TRANSITION_DEFAULT as React.ComponentProps<typeof motion.main>['transition'])}
             >
                 <div className="w-16 h-16 bg-red-100 dark:bg-red-900/40 rounded-full flex items-center justify-center mx-auto mb-4" aria-hidden>
                     <AlertTriangle className="w-8 h-8 text-red-500" />
@@ -50,7 +52,7 @@ export default function ErrorFallback({ error, onRetry }: ErrorFallbackProps) {
                 </h1>
 
                 <p className="text-gray-600 dark:text-slate-300 mb-6">
-                    We hit an unexpected error. Your progress is saved. Try again or go to the curriculum.
+                    We hit an unexpected error. Your progress is saved. Try again or go home.
                 </p>
 
                 {error && (
@@ -88,9 +90,9 @@ export default function ErrorFallback({ error, onRetry }: ErrorFallbackProps) {
                         whileHover={reduceAnimations ? undefined : { scale: 1.02 }}
                         whileTap={reduceAnimations ? undefined : tapScale}
                         transition={reduceAnimations ? { duration: 0 } : TRANSITION_DEFAULT}
-                        aria-label="Go to curriculum"
+                        aria-label="Go home"
                     >
-                        Go to Curriculum
+                        Go Home
                     </motion.button>
                 </div>
             </motion.main>

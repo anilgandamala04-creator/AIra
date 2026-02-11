@@ -1,13 +1,13 @@
 # DEPRECATED
 
 This directory contains the legacy Firebase Cloud Functions implementation.
-The project has been migrated to use a standalone Express backend server in the `/backend` directory, integrated with Supabase.
+The project uses a standalone Express backend in `/backend`. No Firebase or Supabase.
 
 ### Why was this moved?
-1. **Supabase Integration**: Core data operations now use Supabase.
-2. **Spark Plan Compatibility**: Standalone Express servers can be hosted for free on platforms like Render or Railway, avoiding the need for a paid Firebase Spark plan for Cloud Functions.
-3. **Flutter & Web Consistency**: Both platforms now hit the same unified Express API.
+1. **Standalone backend**: AI and API are served by the Express server in `/backend`.
+2. **Hosting**: Backend can be hosted on Render, Railway, etc. No Cloud Functions or Supabase required.
+3. **Flutter & Web**: Both platforms use the same Express API.
 
 ### Migration Path
-- If you were using the AI endpoints, they are now available in `/backend/src/server.ts`.
-- If you need authentication or rate limiting, use the Supabase-based middlewares in the new backend.
+- AI endpoints are in `/backend/src/server.ts`.
+- Auth and rate limiting are handled in the Express backend (guest identity, in-memory rate limit).
